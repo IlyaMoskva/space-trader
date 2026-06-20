@@ -4,7 +4,7 @@ A faithful reimagining of the classic Palm OS game **Space Trader** (2002, Piete
 
 ## Play
 
-→ **[Play online](https://YOUR_USERNAME.github.io/space-trader/)**
+→ **[Play online](https://IlyaMoskva.github.io/space-trader/)**
 
 Or install on iPhone: open the link in Safari → Share → Add to Home Screen.
 
