@@ -1666,7 +1666,6 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     newGame = contractGame;
 
     // Generate bulletin board for new system
-    const arrivedSys = newGame.galaxy[selected];
     newGame.bulletinBoard = generateContracts(arrivedSys, newGame.galaxy, newGame.days);
 
     // Check quest arrivals
