@@ -1,1 +1,0 @@
-if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/space-trader/sw.js', { scope: '/space-trader/' })})}
