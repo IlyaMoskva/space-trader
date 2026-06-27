@@ -4,7 +4,7 @@ All notable changes to Space Trader PWA.
 
 ---
 
-## [Unreleased] — current
+## [0.4.0] — Ships, Quests, Bounties, New planet events
 
 ### Added
 - **Star Wars–style ship sprites** — all 10 ships replaced with unique SVG pixel art silhouettes:
