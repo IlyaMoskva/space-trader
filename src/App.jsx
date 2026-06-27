@@ -191,6 +191,7 @@ body { background: #07071a; }
 
 // ─── GAME DATA ───────────────────────────────────────────────────────────────
 
+
 const SHIPS = [
   { id: "flea",        name: "Flea",        hull: 25,  cargo: 10, slots_w: 0, slots_s: 0, slots_g: 1, slots_c: 0, jump: 5,  price: 2000,   emoji: "🛸" },
   { id: "gnat",        name: "Gnat",        hull: 100, cargo: 15, slots_w: 1, slots_s: 0, slots_g: 1, slots_c: 0, jump: 14, price: 0,      emoji: "🚀" },
@@ -476,7 +477,7 @@ function getCommodityCategory(id) {
 // ─── EVENTS SYSTEM ───────────────────────────────────────────────────────────
 
 const EVENT_TEMPLATES = [
-  // War affects: food+, water+, medicine+, weapons+, luxury-
+  // War: food+, water+, medicine+, weapons+, luxury-
   { id: "war",       text: "{sys} is at war!",
     effects: { food: 1.4, water: 1.3, medicine: 1.6, firearms: 1.5, firearms2: 1.5, games: 0.5 },
     duration: [4, 8], pirates: +1 },
@@ -484,11 +485,11 @@ const EVENT_TEMPLATES = [
   { id: "drought",   text: "Drought grips {sys}.",
     effects: { water: 2.0, food: 1.6, medicine: 1.2 },
     duration: [3, 6] },
-  // Plague: medicine++, food+, water+
+  // Plague: medicine+, food+, water+ — toned down from 2.2 to 1.7
   { id: "plague",    text: "Plague reported on {sys}.",
-    effects: { medicine: 2.2, food: 1.3, water: 1.3, robots: 0.8 },
+    effects: { medicine: 1.7, food: 1.3, water: 1.3, robots: 0.85 },
     duration: [3, 5] },
-  // Bountiful harvest: food-, water-
+  // Bountiful harvest: food-, water-, furs-
   { id: "harvest",   text: "Bumper harvest on {sys}.",
     effects: { food: 0.5, furs: 0.7, water: 0.7 },
     duration: [2, 4] },
@@ -504,7 +505,7 @@ const EVENT_TEMPLATES = [
   { id: "pirates",   text: "Pirates raid {sys} shipping lanes.",
     effects: { food: 1.2, water: 1.2, firearms: 1.3 },
     duration: [3, 6], pirates: +1 },
-  // Economic boom: luxury+, games+, medicine-
+  // Economic boom: games+, medicine-, machines-
   { id: "boom",      text: "Economic boom on {sys}.",
     effects: { games: 1.4, medicine: 0.8, machines: 0.9 },
     duration: [3, 5] },
@@ -512,23 +513,38 @@ const EVENT_TEMPLATES = [
   { id: "orestrike", text: "Rich ore deposits found near {sys}.",
     effects: { ore: 0.5, machines: 0.9 },
     duration: [3, 6] },
-  // Drug crackdown: narcotics++
+  // Drug crackdown: narcotics++, illegal weapons+
   { id: "crackdown", text: "Drug crackdown on {sys}.",
     effects: { narcotics: 1.8, firearms2: 1.3 },
     duration: [2, 5] },
+  // Cold winter: furs++, medicine+, food+, water+ (hot drinks, heating)
+  { id: "coldwinter", text: "Harsh winter strikes {sys}.",
+    effects: { furs: 1.8, medicine: 1.2, food: 1.3, water: 1.15 },
+    duration: [3, 6] },
+  // Flood: water glut but food+, machines+ (damage), ore- (flooded mines)
+  { id: "flood",     text: "Floods devastate {sys} lowlands.",
+    effects: { water: 0.5, food: 1.4, machines: 1.3, ore: 0.8 },
+    duration: [2, 5] },
+  // Festival: games+, food+ (feasting), medicine- (mood high)
+  { id: "festival",  text: "Grand festival celebrated on {sys}.",
+    effects: { games: 1.5, food: 1.2, medicine: 0.85, furs: 1.2 },
+    duration: [2, 3] },
+  // Industrial accident: machines+, robots+ (repair demand), medicine+
+  { id: "accident",  text: "Industrial accident disrupts {sys} output.",
+    effects: { machines: 1.4, robots: 1.3, medicine: 1.25 },
+    duration: [2, 4] },
 ];
 
 function generateSystemEvents(system) {
-  // 0–2 events per system, weighted by conditions
   const events = [];
   const count = Math.random() < 0.4 ? 0 : Math.random() < 0.6 ? 1 : 2;
   const eligible = EVENT_TEMPLATES.filter(e => {
-    // No tech boom on pre-industrial planets
-    if (e.id === "techboom" && system.tech < 4) return false;
-    // No harvest on hi-tech
-    if (e.id === "harvest" && system.tech > 5) return false;
-    // No ore strike on service economies
+    if (e.id === "techboom"  && system.tech < 4) return false;
+    if (e.id === "harvest"   && system.tech > 5) return false;
     if (e.id === "orestrike" && system.tech > 6) return false;
+    if (e.id === "accident"  && system.tech < 3) return false; // no industry to accident
+    if (e.id === "festival"  && system.gov === 0) return false; // anarchy has no organised festivals
+    if (e.id === "flood"     && system.special === 4) return false; // desert planets don't flood
     return true;
   });
   const used = new Set();
@@ -674,7 +690,7 @@ const CONTRACT_NAMES = {
     "Raiders intercepted near jump point",
     "Bounty on local pirate gang",
     "Clear the shipping lanes",
-    "Merchant convoy protection needed",
+    "Eliminate pirate outpost",
   ],
   assassination: [
     "Rogue commander",
@@ -688,15 +704,23 @@ const CONTRACT_NAMES = {
 function generateContracts(system, galaxy, days) {
   const contracts = [];
   const sysName = system.name;
-
-  // 1-3 contracts depending on system size and tech
   const count = 1 + Math.floor((system.size + system.tech) / 5);
 
-  for (let i = 0; i < Math.min(count, 3); i++) {
-    const roll = Math.random();
+  // Track used types and target systems to avoid duplicates
+  const usedTypes = new Set();
+  const usedTargets = new Set([system.id]);
 
-    if (roll < 0.50) {
-      // DELIVERY — pick a destination system
+  // Shuffle contract types for this system
+  const typePool = ["delivery", "extermination", "assassination"]
+    .sort(() => Math.random() - 0.5);
+
+  for (let i = 0; i < Math.min(count, 3); i++) {
+    // Pick a type not yet used this board
+    const type = typePool[i] || pick(["delivery","extermination","assassination"]);
+    if (usedTypes.has(type)) continue;
+    usedTypes.add(type);
+
+    if (type === "delivery") {
       const destinations = galaxy.filter(s =>
         s.id !== system.id && distParsecs(system, s) > 15
       );
@@ -710,70 +734,66 @@ function generateContracts(system, galaxy, days) {
         id: "c_" + system.id + "_" + i + "_" + days,
         type: "delivery",
         title: pick(CONTRACT_NAMES.delivery),
-        from: sysName,
-        fromId: system.id,
-        toId: dest.id,
-        to: dest.name,
-        cargoQty,
-        daysAllowed,
+        from: sysName, fromId: system.id,
+        toId: dest.id, to: dest.name,
+        cargoQty, daysAllowed,
         deadline: days + daysAllowed,
-        reward,
-        penalty: Math.round(reward * 0.3),
-        status: "available",
-        emoji: "📦",
+        reward, penalty: Math.round(reward * 0.3),
+        status: "available", emoji: "📦",
       });
 
-    } else if (roll < 0.80) {
-      // EXTERMINATION — kill N pirates in current or nearby system
+    } else if (type === "extermination") {
+      // Pick a target system different from any already used
+      const pirateSystems = galaxy.filter(s =>
+        !usedTargets.has(s.id) && s.pirates >= 1 && distParsecs(system, s) < 30
+      );
+      const targetSys = pirateSystems.length > 0
+        ? pick(pirateSystems)
+        : galaxy.filter(s => !usedTargets.has(s.id) && s.id !== system.id)[0] || system;
+      usedTargets.add(targetSys.id);
+
       const killCount = rnd(2, 5);
-      const reward = killCount * rnd(300, 700);
+      // Per-kill reward: 800-2000 cr — combat pays 3x more than delivery per unit effort
+      const rewardPerKill = rnd(800, 2000);
+      const reward = Math.round(killCount * rewardPerKill / 50) * 50;
       const daysAllowed = rnd(5, 10);
-      // Target: current system if pirates≥1, else pick nearby
-      const targetSys = system.pirates >= 1 ? system
-        : galaxy.find(s => s.id !== system.id && distParsecs(system, s) < 20 && s.pirates >= 1) || system;
       contracts.push({
         id: "c_" + system.id + "_" + i + "_" + days,
         type: "extermination",
         title: pick(CONTRACT_NAMES.extermination),
-        from: sysName,
-        fromId: system.id,
+        from: sysName, fromId: system.id,
         targetSystemId: targetSys.id,
         targetSystemName: targetSys.name,
-        killCount,
-        killsCompleted: 0,
-        daysAllowed,
+        killCount, killsCompleted: 0, daysAllowed,
         deadline: days + daysAllowed,
-        reward,
-        penalty: Math.round(reward * 0.2),
-        status: "available",
-        emoji: "⚔️",
+        reward, penalty: Math.round(reward * 0.2),
+        status: "available", emoji: "⚔️",
       });
 
     } else {
-      // ASSASSINATION — kill a named target in a specific system
-      const targetSystems = galaxy.filter(s =>
-        s.id !== system.id && distParsecs(system, s) < 60
+      // assassination — unique target system
+      const candidates = galaxy.filter(s =>
+        !usedTargets.has(s.id) && s.id !== system.id && distParsecs(system, s) < 60
       );
-      if (targetSystems.length === 0) continue;
-      const targetSys = pick(targetSystems);
+      if (candidates.length === 0) continue;
+      const targetSys = pick(candidates);
+      usedTargets.add(targetSys.id);
+
       const targetName = pick(CONTRACT_NAMES.assassination);
-      const reward = rnd(1500, 5000);
+      // Assassination: highest risk, highest reward — named target, boss fight
+      const reward = Math.round(rnd(5000, 15000) / 500) * 500;
       const daysAllowed = rnd(6, 12);
       contracts.push({
         id: "c_" + system.id + "_" + i + "_" + days,
         type: "assassination",
         title: "Eliminate: " + targetName,
-        from: sysName,
-        fromId: system.id,
+        from: sysName, fromId: system.id,
         targetSystemId: targetSys.id,
         targetSystemName: targetSys.name,
-        targetName,
-        daysAllowed,
+        targetName, daysAllowed,
         deadline: days + daysAllowed,
-        reward,
-        penalty: 0,
-        status: "available",
-        emoji: "🎯",
+        reward, penalty: 0,
+        status: "available", emoji: "🎯",
       });
     }
   }
@@ -956,6 +976,45 @@ function effectiveSkills(game) {
   return result;
 }
 
+// Generate a pirate ship scaled to system tech level and player kills
+// tier 0-2: weak (Flea-Mosquito), tier 3-5: mid (Bumblebee-Hornet), tier 6+: strong (Grasshopper-Wasp)
+function generatePirateShip(system, playerKills) {
+  const kills = playerKills || 0;
+  const techLevel = system?.tech || 0;
+
+  // Threat score: 0-10 based on system tech + player reputation
+  // Every 5 kills adds 1 threat point, capped at 5 from kills
+  const threatFromKills = Math.min(5, Math.floor(kills / 5));
+  const threat = Math.min(10, techLevel + threatFromKills);
+
+  // Pick ship tier based on threat with some randomness
+  let shipPool;
+  if (threat <= 2) {
+    shipPool = SHIPS.slice(0, 3);       // Flea, Gnat, Firefly
+  } else if (threat <= 4) {
+    shipPool = SHIPS.slice(1, 5);       // Gnat → Bumblebee
+  } else if (threat <= 6) {
+    shipPool = SHIPS.slice(3, 7);       // Mosquito → Hornet
+  } else if (threat <= 8) {
+    shipPool = SHIPS.slice(5, 9);       // Beetle → Termite
+  } else {
+    shipPool = SHIPS.slice(7, 10);      // Grasshopper → Wasp
+  }
+
+  const ship = pick(shipPool);
+
+  // Pick weapon scaled to threat
+  const weaponTier = Math.min(WEAPONS.length - 1, Math.floor(threat / 4));
+  const weapon = WEAPONS[weaponTier];
+
+  // Shields: only mid+ threat pirates have shields
+  const shieldStrength = threat >= 5
+    ? (threat >= 8 ? SHIELDS[1].strength : SHIELDS[0].strength)
+    : 0;
+
+  return { ship, weapon, hull: ship.hull, hullMax: ship.hull, shields: shieldStrength, shieldsMax: shieldStrength };
+}
+
 function generateEncounter(currentSystem, player) {
   const pilotSkill = player.skills?.pilot || 0;
   const policeChance = currentSystem.police * 15 * (1 - pilotSkill * 0.04); // Pilot 10 = -40%
@@ -968,9 +1027,8 @@ function generateEncounter(currentSystem, player) {
     return { type: "special", sub: pick(specials) };
   }
   if (r < specialChance + pirateChance) {
-    const ship = pick(SHIPS.slice(0, 5));
-    return { type: "pirate", ship, weapon: pick(WEAPONS.slice(0, 2)),
-      hull: ship.hull, hullMax: ship.hull, shields: ship.slots_s > 0 ? 100 : 0, shieldsMax: ship.slots_s > 0 ? 100 : 0 };
+    const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(currentSystem, player.killed);
+    return { type: "pirate", ship, weapon, hull, hullMax, shields, shieldsMax };
   }
   if (r < specialChance + pirateChance + policeChance) {
     return { type: "police", contraband: player.cargo.some(c => {
@@ -979,7 +1037,43 @@ function generateEncounter(currentSystem, player) {
     })};
   }
   if (r < specialChance + pirateChance + policeChance + 15) {
-    return { type: "trader" };
+    // Trader sells 2-3 legal goods at slight discount
+    // Trader BUYS anything including illegal - sometimes at premium
+    const sellGoods = [];
+    const buyGoods  = [];
+    const legalPool   = COMMODITIES.filter(c => !c.illegal);
+    const illegalPool = COMMODITIES.filter(c => c.illegal);
+    const usedSell = new Set();
+
+    // What they sell: 2-3 legal items, 80-95% of base (slight discount)
+    const sellCount = rnd(2, 3);
+    for (let i = 0; i < sellCount; i++) {
+      const available = legalPool.filter(x => !usedSell.has(x.id));
+      if (!available.length) break;
+      const c = available[Math.floor(Math.random() * available.length)];
+      usedSell.add(c.id);
+      sellGoods.push({ id: c.id, name: c.name, price: Math.round(c.base * (0.80 + Math.random() * 0.15)), qty: rnd(1, 5) });
+    }
+
+    // What they buy: mix of legal + possibly illegal, sometimes at premium
+    // They always buy 1-2 illegal items if any exist
+    const buyPool = [...legalPool.slice(0, 3), ...illegalPool];
+    const usedBuy = new Set();
+    const buyCount = rnd(2, 4);
+    for (let i = 0; i < buyCount; i++) {
+      const available = buyPool.filter(x => !usedBuy.has(x.id));
+      if (!available.length) break;
+      // Weight toward illegal
+      const c = Math.random() < 0.5 && illegalPool.filter(x => !usedBuy.has(x.id)).length > 0
+        ? illegalPool.filter(x => !usedBuy.has(x.id))[0]
+        : available[Math.floor(Math.random() * available.length)];
+      usedBuy.add(c.id);
+      // Illegal: pay 90-130% of base. Legal: pay 85-105%
+      const mult = c.illegal ? (0.90 + Math.random() * 0.40) : (0.85 + Math.random() * 0.20);
+      buyGoods.push({ id: c.id, name: c.name, price: Math.round(c.base * mult), illegal: c.illegal });
+    }
+
+    return { type: "trader", sellGoods, buyGoods };
   }
   return null;
 }
@@ -1098,6 +1192,225 @@ function createNewGame(name, skills) {
     bulletinBoard: generateContracts(startSys, galaxy, 1),
     reputation: 0,
   };
+}
+
+// ─── SHIP SPRITES ────────────────────────────────────────────────────────────
+
+const SHIP_SVGS = {
+  flea: (c) => <>
+    <polygon points="35,4 37,4 41,14 31,14" fill={c.body}/>
+    <rect x="33" y="14" width="6" height="4" fill={c.cockpit}/>
+    <rect x="34" y="15" width="4" height="2" fill={c.glass}/>
+    <rect x="30" y="18" width="12" height="8" fill={c.body}/>
+    <rect x="16" y="21" width="14" height="3" fill={c.wing}/>
+    <rect x="14" y="19" width="4" height="7" fill={c.wing}/>
+    <rect x="42" y="21" width="14" height="3" fill={c.wing}/>
+    <rect x="54" y="19" width="4" height="7" fill={c.wing}/>
+    <rect x="32" y="26" width="8" height="5" fill={c.engine}/>
+    <rect x="31" y="31" width="3" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="38" y="31" width="3" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  gnat: (c) => <>
+    <rect x="34" y="0" width="1" height="5" fill={c.gun}/>
+    <rect x="37" y="0" width="1" height="5" fill={c.gun}/>
+    <polygon points="35,5 37,5 40,14 32,14" fill={c.body}/>
+    <rect x="33" y="14" width="6" height="5" fill={c.cockpit}/>
+    <rect x="34" y="15" width="4" height="3" fill={c.glass}/>
+    <rect x="31" y="19" width="10" height="12" fill={c.body}/>
+    <rect x="9" y="19" width="22" height="3" fill={c.wing}/>
+    <rect x="7" y="14" width="4" height="12" fill={c.wing}/>
+    <rect x="41" y="19" width="22" height="3" fill={c.wing}/>
+    <rect x="61" y="14" width="4" height="12" fill={c.wing}/>
+    <rect x="9" y="28" width="22" height="3" fill={c.wing}/>
+    <rect x="7" y="26" width="4" height="9" fill={c.wing}/>
+    <rect x="41" y="28" width="22" height="3" fill={c.wing}/>
+    <rect x="61" y="26" width="4" height="9" fill={c.wing}/>
+    <rect x="33" y="31" width="6" height="5" fill={c.engine}/>
+    <rect x="33" y="36" width="6" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  firefly: (c) => <>
+    <polygon points="36,2 40,2 44,12 32,12" fill={c.body}/>
+    <rect x="34" y="12" width="8" height="5" fill={c.cockpit}/>
+    <rect x="35" y="13" width="6" height="3" fill={c.glass}/>
+    <polygon points="28,17 44,17 48,36 24,36" fill={c.body}/>
+    <polygon points="8,22 28,17 28,22 12,30" fill={c.wing}/>
+    <polygon points="64,22 44,17 44,22 60,30" fill={c.wing}/>
+    <rect x="6" y="22" width="6" height="10" fill={c.engine}/>
+    <rect x="6" y="32" width="6" height="4" fill={c.glow} opacity="0.9"/>
+    <rect x="60" y="22" width="6" height="10" fill={c.engine}/>
+    <rect x="60" y="32" width="6" height="4" fill={c.glow} opacity="0.9"/>
+    <rect x="32" y="36" width="8" height="4" fill={c.glow} opacity="0.7"/>
+  </>,
+  mosquito: (c) => <>
+    <polygon points="34,8 38,8 42,16 30,16" fill={c.cockpit}/>
+    <rect x="30" y="16" width="12" height="12" fill={c.body}/>
+    <rect x="32" y="18" width="8" height="6" fill="#1a1a2a"/>
+    <rect x="33" y="19" width="6" height="4" fill={c.glass}/>
+    <rect x="18" y="19" width="12" height="3" fill={c.wing}/>
+    <rect x="42" y="19" width="12" height="3" fill={c.wing}/>
+    <polygon points="4,10 18,18 18,38 4,46" fill="#22224a"/>
+    {[12,18,24,30,36].map(y => <rect key={y} x="5" y={y} width="12" height="1" fill="#4444aa" opacity="0.8"/>)}
+    <polygon points="68,10 54,18 54,38 68,46" fill="#22224a"/>
+    {[12,18,24,30,36].map(y => <rect key={y} x="55" y={y} width="12" height="1" fill="#4444aa" opacity="0.8"/>)}
+    <rect x="4" y="28" width="2" height="6" fill={c.gun}/>
+    <rect x="66" y="28" width="2" height="6" fill={c.gun}/>
+    <rect x="34" y="28" width="4" height="8" fill={c.engine}/>
+    <rect x="34" y="36" width="4" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  bumblebee: (c) => <>
+    <polygon points="50,6 70,10 76,20 76,32 70,40 32,40 24,32 24,20 30,10" fill={c.body}/>
+    <polygon points="50,10 68,16 68,28 50,34 32,28 32,16" fill={c.cockpit} opacity="0.4"/>
+    <rect x="50" y="2" width="22" height="10" fill={c.cockpit}/>
+    <rect x="52" y="3" width="8" height="6" fill={c.glass}/>
+    <rect x="62" y="3" width="6" height="6" fill={c.glass} opacity="0.6"/>
+    <rect x="42" y="6" width="5" height="5" fill={c.body}/>
+    <rect x="43" y="2" width="3" height="7" fill={c.gun}/>
+    <rect x="24" y="22" width="6" height="14" fill={c.engine}/>
+    <rect x="24" y="36" width="6" height="4" fill={c.glow} opacity="0.9"/>
+    <rect x="70" y="22" width="6" height="14" fill={c.engine}/>
+    <rect x="70" y="36" width="6" height="4" fill={c.glow} opacity="0.9"/>
+  </>,
+  beetle: (c) => <>
+    <polygon points="52,4 58,4 74,16 30,16" fill={c.body}/>
+    <polygon points="48,8 60,8 62,16 46,16" fill={c.cockpit}/>
+    <rect x="28" y="16" width="44" height="12" fill={c.body}/>
+    <rect x="26" y="4" width="2" height="14" fill={c.gun}/>
+    <rect x="72" y="4" width="2" height="14" fill={c.gun}/>
+    <rect x="38" y="20" width="4" height="3" fill={c.glass}/>
+    <rect x="46" y="20" width="4" height="3" fill={c.glass}/>
+    <rect x="54" y="20" width="4" height="3" fill={c.glass}/>
+    <polygon points="18,28 28,16 28,28" fill={c.wing}/>
+    <polygon points="82,28 72,16 72,28" fill={c.wing}/>
+    <rect x="18" y="28" width="64" height="10" fill={c.body}/>
+    <rect x="32" y="38" width="36" height="7" fill={c.engine}/>
+    <rect x="22" y="38" width="8" height="7" fill={c.engine}/>
+    <rect x="70" y="38" width="8" height="7" fill={c.engine}/>
+    <rect x="22" y="45" width="8" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="34" y="45" width="8" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="46" y="45" width="8" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="58" y="45" width="8" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="70" y="45" width="8" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  hornet: (c) => <>
+    <polygon points="50,2 54,2 80,22 20,22" fill={c.body}/>
+    <rect x="44" y="4" width="16" height="14" fill={c.cockpit}/>
+    <rect x="46" y="5" width="6" height="6" fill={c.glass}/>
+    <rect x="54" y="5" width="6" height="6" fill={c.glass} opacity="0.6"/>
+    <rect x="48" y="0" width="2" height="12" fill={c.gun}/>
+    <rect x="52" y="0" width="2" height="14" fill={c.gun}/>
+    <rect x="56" y="0" width="2" height="12" fill={c.gun}/>
+    <rect x="20" y="22" width="60" height="10" fill={c.body}/>
+    <rect x="22" y="24" width="2" height="8" fill={c.gun}/>
+    <rect x="76" y="24" width="2" height="8" fill={c.gun}/>
+    <polygon points="8,34 20,22 20,34" fill={c.wing}/>
+    <polygon points="92,34 80,22 80,34" fill={c.wing}/>
+    <rect x="8" y="34" width="84" height="10" fill={c.body}/>
+    <rect x="28" y="38" width="44" height="4" fill={c.engine} opacity="0.5"/>
+    <rect x="14" y="44" width="72" height="7" fill={c.engine}/>
+    <rect x="16" y="51" width="10" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="30" y="51" width="10" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="44" y="51" width="12" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="60" y="51" width="10" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="74" y="51" width="10" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  grasshopper: (c) => <>
+    <ellipse cx="50" cy="26" rx="38" ry="18" fill={c.body}/>
+    <ellipse cx="50" cy="18" rx="22" ry="12" fill={c.cockpit}/>
+    <rect x="44" y="4" width="12" height="12" fill={c.cockpit}/>
+    <rect x="46" y="5" width="5" height="5" fill={c.glass}/>
+    <rect x="52" y="5" width="4" height="5" fill={c.glass} opacity="0.5"/>
+    <ellipse cx="36" cy="26" rx="7" ry="4" fill="#334433" opacity="0.5"/>
+    <ellipse cx="64" cy="26" rx="7" ry="4" fill="#334433" opacity="0.5"/>
+    <rect x="14" y="24" width="12" height="6" fill={c.wing}/>
+    <rect x="74" y="24" width="12" height="6" fill={c.wing}/>
+    <rect x="14" y="24" width="2" height="10" fill={c.gun}/>
+    <rect x="84" y="24" width="2" height="10" fill={c.gun}/>
+    <ellipse cx="50" cy="38" rx="30" ry="8" fill="#334433"/>
+    <rect x="24" y="40" width="14" height="7" fill={c.engine} rx="2"/>
+    <rect x="62" y="40" width="14" height="7" fill={c.engine} rx="2"/>
+    <rect x="40" y="43" width="20" height="5" fill={c.engine} rx="2"/>
+    <rect x="24" y="47" width="14" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="62" y="47" width="14" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="40" y="48" width="20" height="3" fill={c.glow} opacity="0.7"/>
+  </>,
+  termite: (c) => <>
+    <polygon points="26,4 46,4 50,14 22,14" fill={c.body}/>
+    <rect x="22" y="14" width="28" height="10" fill={c.cockpit}/>
+    <rect x="26" y="16" width="4" height="4" fill={c.glass}/>
+    <rect x="34" y="16" width="4" height="4" fill={c.glass}/>
+    <rect x="42" y="16" width="4" height="4" fill={c.glass}/>
+    <rect x="35" y="1" width="2" height="5" fill={c.gun}/>
+    <rect x="30" y="24" width="12" height="16" fill="#334466"/>
+    <rect x="14" y="40" width="72" height="16" fill={c.body}/>
+    <rect x="46" y="30" width="18" height="14" fill={c.cockpit}/>
+    <rect x="48" y="32" width="5" height="5" fill={c.glass}/>
+    <rect x="56" y="32" width="5" height="5" fill={c.glass} opacity="0.5"/>
+    {[0,16,32,48].map(x => <rect key={x} x={16+x} y={44} width="14" height="6" fill="#223355" opacity="0.7"/>)}
+    <rect x="14" y="56" width="72" height="8" fill={c.engine}/>
+    <rect x="16" y="64" width="12" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="32" y="64" width="12" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="48" y="64" width="12" height="3" fill={c.glow} opacity="0.9"/>
+    <rect x="64" y="64" width="12" height="3" fill={c.glow} opacity="0.9"/>
+  </>,
+  wasp: (c) => <>
+    <polygon points="50,0 54,0 100,52 0,52" fill={c.body}/>
+    <polygon points="50,0 54,0 88,36 16,36" fill={c.cockpit} opacity="0.35"/>
+    <rect x="38" y="8" width="28" height="18" fill={c.cockpit}/>
+    <rect x="40" y="9" width="10" height="8" fill={c.glass}/>
+    <rect x="52" y="9" width="8" height="8" fill={c.glass} opacity="0.6"/>
+    <rect x="34" y="5" width="6" height="6" fill={c.body} rx="2"/>
+    <rect x="64" y="5" width="6" height="6" fill={c.body} rx="2"/>
+    <rect x="44" y="0" width="2" height="14" fill={c.gun}/>
+    <rect x="50" y="0" width="2" height="16" fill={c.gun}/>
+    <rect x="56" y="0" width="2" height="14" fill={c.gun}/>
+    <rect x="18" y="34" width="2" height="12" fill={c.gun}/>
+    <rect x="26" y="32" width="2" height="14" fill={c.gun}/>
+    <rect x="74" y="34" width="2" height="12" fill={c.gun}/>
+    <rect x="72" y="32" width="2" height="14" fill={c.gun}/>
+    <rect x="14" y="40" width="72" height="5" fill={c.body} opacity="0.5"/>
+    <rect x="24" y="44" width="52" height="4" fill="#334455" opacity="0.6"/>
+    <rect x="0" y="52" width="100" height="10" fill={c.engine}/>
+    <rect x="2" y="62" width="14" height="4" fill={c.glow} opacity="0.9"/>
+    <rect x="20" y="62" width="14" height="4" fill={c.glow} opacity="1.0"/>
+    <rect x="38" y="62" width="14" height="4" fill={c.glow} opacity="1.0"/>
+    <rect x="54" y="62" width="14" height="4" fill={c.glow} opacity="1.0"/>
+    <rect x="72" y="62" width="14" height="4" fill={c.glow} opacity="1.0"/>
+    <rect x="86" y="62" width="12" height="4" fill={c.glow} opacity="0.9"/>
+  </>,
+};
+
+// Color palettes per ship
+const SHIP_COLORS = {
+  flea:        { body:"#778899", cockpit:"#8899aa", glass:"#4fc3f7", wing:"#556677", engine:"#445566", gun:"#cc4444", glow:"#4fc3f7" },
+  gnat:        { body:"#8899bb", cockpit:"#99aacc", glass:"#4fc3f7", wing:"#6677aa", engine:"#445577", gun:"#cc4444", glow:"#4fc3f7" },
+  firefly:     { body:"#779977", cockpit:"#aaccaa", glass:"#4fc3f7", wing:"#668866", engine:"#445544", gun:"#cc4444", glow:"#4fc3f7" },
+  mosquito:    { body:"#999999", cockpit:"#aaaaaa", glass:"#4fc3f7", wing:"#22224a", engine:"#333333", gun:"#cc4444", glow:"#4fc3f7" },
+  bumblebee:   { body:"#aa9977", cockpit:"#bbaa88", glass:"#4fc3f7", wing:"#887755", engine:"#665544", gun:"#cc4444", glow:"#4fc3f7" },
+  beetle:      { body:"#7799bb", cockpit:"#8899cc", glass:"#4fc3f7", wing:"#6688aa", engine:"#556677", gun:"#cc4444", glow:"#4fc3f7" },
+  hornet:      { body:"#8a4a5a", cockpit:"#7a3a4a", glass:"#4fc3f7", wing:"#6a2a3a", engine:"#4a2a3a", gun:"#cc4444", glow:"#4fc3f7" },
+  grasshopper: { body:"#557766", cockpit:"#669977", glass:"#4fc3f7", wing:"#446655", engine:"#335544", gun:"#cc4444", glow:"#4fc3f7" },
+  termite:     { body:"#6688aa", cockpit:"#7799bb", glass:"#4fc3f7", wing:"#5577aa", engine:"#445566", gun:"#cc4444", glow:"#4fc3f7" },
+  wasp:        { body:"#8899aa", cockpit:"#99aacc", glass:"#4fc3f7", wing:"#667788", engine:"#556677", gun:"#ff4444", glow:"#4fc3f7" },
+};
+
+function ShipSprite({ shipId, size = 48, flip = false }) {
+  const draw = SHIP_SVGS[shipId] || SHIP_SVGS.gnat;
+  const colors = SHIP_COLORS[shipId] || SHIP_COLORS.gnat;
+  // Each ship is drawn in a ~72×68 or so box; scale to fit `size`
+  const vbSizes = {
+    flea:"72 36", gnat:"72 40", firefly:"72 40", mosquito:"72 56",
+    bumblebee:"100 44", beetle:"102 50", hornet:"102 56", grasshopper:"100 52",
+    termite:"100 68", wasp:"102 68",
+  };
+  const vb = "0 0 " + (vbSizes[shipId] || "72 56");
+  const transform = flip ? `scale(-1,1) translate(-${vb.split(" ")[2]},0)` : undefined;
+  return (
+    <svg width={size} height={size} viewBox={vb} style={{ display:"block", imageRendering:"pixelated" }}>
+      <g transform={transform}>
+        {draw(colors)}
+      </g>
+    </svg>
+  );
 }
 
 // ─── STARS CANVAS ────────────────────────────────────────────────────────────
@@ -1724,6 +2037,60 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
           </div>
         )}
         {!selectedSys && <div style={{ fontSize: 15, color: "#555588", textAlign: "center", marginTop: 8 }}>Click a system to plot course</div>}
+
+        {/* PATROL — active contracts targeting current system */}
+        {(() => {
+          const patrolContracts = (game.activeContracts || []).filter(c =>
+            c.status === "active" &&
+            (c.type === "extermination" || c.type === "assassination") &&
+            c.targetSystemId === game.currentSystem
+          );
+          if (patrolContracts.length === 0) return null;
+          const sys = game.galaxy[game.currentSystem];
+          const hasPirates = sys.pirates >= 1;
+
+          const patrol = () => {
+            // Patrolling costs 1 day, guaranteed encounter if pirates present
+            let newGame = {
+              ...game,
+              days: game.days + 1,
+              shields: game.shields.map(s => ({ ...s, current: Math.min(s.max, s.current + 10) })),
+              log: [{ type: "info", text: "Patrolling " + sys.name + "..." }, ...game.log],
+            };
+            if (hasPirates) {
+              const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(sys, game.killed);
+              const enc = { type: "pirate", ship, weapon, hull, hullMax, shields, shieldsMax };
+              onEncounter(newGame, enc);
+            } else {
+              newGame.log = [{ type: "warn", text: "Patrol found nothing — pirates may have fled." }, ...newGame.log];
+              onUpdate(newGame);
+            }
+          };
+
+          return (
+            <div style={{ marginTop: 10, border: "1px solid #ff6b3566", borderRadius: 4, padding: 10 }}>
+              <div style={{ fontSize: 15, color: "#ff6b35", marginBottom: 6 }}>
+                ⚔️ Active contract in this system
+              </div>
+              {patrolContracts.map(c => (
+                <div key={c.id} style={{ fontSize: 14, color: "#8888bb", marginBottom: 4 }}>
+                  {c.title} — {c.type === "extermination" ? c.killsCompleted + "/" + c.killCount + " kills" : "target present"}
+                </div>
+              ))}
+              <button
+                className={"btn " + (hasPirates ? "btn-red" : "btn-gray")}
+                style={{ width: "100%", marginTop: 6 }}
+                onClick={patrol}>
+                {hasPirates ? "🔍 PATROL (+1 day, find pirates)" : "🔍 PATROL — no pirates detected"}
+              </button>
+              {!hasPirates && (
+                <div style={{ fontSize: 13, color: "#555588", marginTop: 4 }}>
+                  This system has no pirate activity (★)
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -1843,14 +2210,51 @@ function ShipScreen({ game, onUpdate }) {
     const val = Math.floor(SHIPS.find(x => x.id === game.ship.id)?.price * 0.7 || 0);
     const cost = s.price - val;
     if (game.credits < cost) return;
+
     const keptMercs = (game.mercenaries || []).slice(0, s.slots_c ?? 0);
-    const firedCount = (game.mercenaries || []).length - keptMercs.length;
+    const keptWeapons = [...game.weapons].sort((a,b) => b.price - a.price).slice(0, s.slots_w);
+    const keptShields = [...game.shields].sort((a,b) => b.price - a.price).slice(0, s.slots_s);
+    const keptGadgets = [...game.gadgets].sort((a,b) => (b.price||0) - (a.price||0)).slice(0, s.slots_g);
+    const soldWeapons = [...game.weapons].sort((a,b) => b.price - a.price).slice(s.slots_w);
+    const soldShields = [...game.shields].sort((a,b) => b.price - a.price).slice(s.slots_s);
+    const soldGadgets = [...game.gadgets].sort((a,b) => (b.price||0) - (a.price||0)).slice(s.slots_g);
+
+    const traderBonus = (game.skills.trader || 0) * 0.02;
+    const sellRate = 0.7 + traderBonus;
+
+    // Sell excess equipment automatically
+    let sellCredits = 0;
     const logEntries = [{ type: "good", text: "Traded up to " + s.name + "!" }];
-    if (firedCount > 0) logEntries.push({ type: "warn", text: firedCount + " crew member(s) let go — no quarters on new ship." });
-    onUpdate({ ...game, credits: game.credits - cost, ship: { ...s },
-      hull: s.hull, hullMax: s.hull, weapons: [], shields: [], gadgets: [],
-      cargoCapacity: s.cargo, mercenaries: keptMercs,
-      log: [...logEntries, ...game.log] });
+
+    soldWeapons.forEach(w => {
+      const sp = Math.floor(w.price * sellRate);
+      sellCredits += sp;
+      logEntries.push({ type: "info", text: w.name + " auto-sold for " + sp + " cr" });
+    });
+    soldShields.forEach(sh => {
+      const sp = Math.floor(sh.price * sellRate);
+      sellCredits += sp;
+      logEntries.push({ type: "info", text: sh.name + " auto-sold for " + sp + " cr" });
+    });
+    soldGadgets.forEach(g => {
+      const sp = Math.floor((g.price || 0) * sellRate);
+      if (sp > 0) { sellCredits += sp; logEntries.push({ type: "info", text: g.name + " auto-sold for " + sp + " cr" }); }
+    });
+    const firedCount = (game.mercenaries || []).length - keptMercs.length;
+    if (firedCount > 0) logEntries.push({ type: "warn", text: firedCount + " crew let go — no quarters on new ship" });
+    if (sellCredits > 0) logEntries.push({ type: "good", text: "Equipment sold: +" + sellCredits + " cr" });
+
+    onUpdate({ ...game,
+      credits: game.credits - cost + sellCredits,
+      ship: { ...s },
+      hull: s.hull, hullMax: s.hull,
+      weapons: keptWeapons,
+      shields: keptShields,
+      gadgets: keptGadgets,
+      cargoCapacity: s.cargo,
+      mercenaries: keptMercs,
+      log: [...logEntries, ...game.log],
+    });
   };
 
   const canRepair = game.hull < game.hullMax && sys.tech >= 2;
@@ -1864,7 +2268,10 @@ function ShipScreen({ game, onUpdate }) {
       </div>
       {tab === "status" && (
         <div className="panel">
-          <div className="panel-title">{game.ship.emoji} {game.ship.name}</div>
+          <div className="panel-title" style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <ShipSprite shipId={game.ship.id} size={32}/>
+            {game.ship.name}
+          </div>
           <div className="stat-row"><span className="stat-label">Hull</span><span className="stat-val-green">{game.hull}/{game.hullMax}</span></div>
           <div className="stat-row"><span className="stat-label">Cargo</span><span className="stat-val">{game.cargo.reduce((s,c)=>s+c.qty,0)}/{game.cargoCapacity}</span></div>
           <div className="stat-row"><span className="stat-label">Jump Range</span><span className="stat-val-blue">{game.ship.jump} pc</span></div>
@@ -2065,7 +2472,10 @@ function ShipScreen({ game, onUpdate }) {
             return (
               <div key={s.id} style={{ padding: "8px 0", borderBottom: "1px solid #1a1a3a" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 16, color: s.id === game.ship.id ? "#00ff88" : "#c0c0ff" }}>{s.emoji} {s.name}</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <ShipSprite shipId={s.id} size={28}/>
+                    <span style={{ fontSize: 16, color: s.id === game.ship.id ? "#00ff88" : "#c0c0ff" }}>{s.name}</span>
+                  </div>
                   {s.id === game.ship.id ? <span className="badge badge-green">CURRENT</span>
                     : <button className={"btn " + (canBuy ? "btn-gold" : "btn-disabled")}
                         style={{ fontSize: 16, padding: "3px 6px" }} onClick={() => buyShip(s)}>
@@ -2279,13 +2689,21 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
       {/* Completed/failed */}
       {done.length > 0 && (
         <div className="panel">
-          <div className="panel-title">History</div>
-          {done.slice(0, 5).map(c => (
-            <div key={c.id} className="stat-row">
-              <span style={{ fontSize: 14, color: "#8888bb" }}>{c.emoji} {c.title}</span>
-              <span className={"badge " + (c.status === "done" ? "badge-green" : "badge-red")}>
-                {c.status === "done" ? "DONE" : "FAILED"}
-              </span>
+          <div className="panel-title">History ({done.length})</div>
+          {[...done].reverse().slice(0, 5).map(c => (
+            <div key={c.id} style={{ padding:"4px 0", borderBottom:"1px solid #1a1a3a" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span style={{ fontSize: 15, color: "#c0c0ff" }}>{c.emoji} {c.title}</span>
+                <span className={"badge " + (c.status === "done" ? "badge-green" : "badge-red")}>
+                  {c.status === "done" ? "DONE" : "FAILED"}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, color: "#555588", marginTop: 2 }}>
+                {c.from && <span>From: {c.from}</span>}
+                {c.type === "delivery" && c.to && <span> → {c.to}</span>}
+                {(c.type === "extermination" || c.type === "assassination") && c.targetSystemName && <span> · Target: {c.targetSystemName}</span>}
+                {c.status === "done" && <span style={{ color:"#00ff8888", marginLeft:6 }}>+{c.reward?.toLocaleString()} cr</span>}
+              </div>
             </div>
           ))}
         </div>
@@ -2384,11 +2802,13 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
       setPhase("ended");
       let finalGame = { ...game, hull: newPlayer.hull, shields: newPlayer.shields, cargo: newPlayer.cargo };
       if (result === "win") {
-        const bounty = rnd(50, 500);
+        // Bounty scales with enemy ship tier: Flea=200, Wasp=2000
+        const shipIdx = SHIPS.findIndex(s => s.id === encounter?.ship?.id) ?? 0;
+        const bounty = Math.round((300 + shipIdx * 200 + rnd(0, 300)) / 50) * 50;
         finalGame.credits = finalGame.credits + bounty;
         finalGame.killed = (finalGame.killed || 0) + 1;
         finalGame = onPirateKilled(finalGame);
-        finalGame.log = [{ type: "good", text: "Destroyed pirate! Bounty: " + bounty + " cr" }, ...finalGame.log];
+        finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
       } else if (result === "dead") {
         finalGame.dead = true;
       }
@@ -2400,20 +2820,33 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   }, [enemy, game, phase, onUpdate, onDone]);
 
   if (encounter.type === "pirate") {
+    const threatLabel = encounter.shields > 0
+      ? (encounter.shields >= 200 ? "ELITE" : "ARMED")
+      : encounter.weapon?.id === "military" ? "DANGEROUS"
+      : encounter.weapon?.id === "beam" ? "MODERATE" : "WEAK";
+    const threatColor = threatLabel === "ELITE" ? "#ff4444"
+      : threatLabel === "DANGEROUS" ? "#ff6b35"
+      : threatLabel === "ARMED" || threatLabel === "MODERATE" ? "#ffd700"
+      : "#8888bb";
     return (
       <div className="encounter-box">
-        <div className="encounter-title">⚠ PIRATE ENCOUNTER</div>
+        <div className="encounter-title">⚠ PIRATE ENCOUNTER
+          <span style={{ fontSize: 13, color: threatColor, marginLeft: 10 }}>[{threatLabel}]</span>
+        </div>
         <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 10 }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 20 }}>{game.ship.emoji}</div>
+            <ShipSprite shipId={game.ship.id} size={52}/>
             <div style={{ fontSize: 16, color: "#00ff88" }}>YOU</div>
             <div style={{ fontSize: 15, color: "#00ff88" }}>Hull: {game.hull}</div>
+            {game.shields.length > 0 && <div style={{ fontSize: 13, color: "#4fc3f7" }}>Shield: {game.shields[0].current}</div>}
           </div>
           <div style={{ fontSize: 16, color: "#ff6b35", alignSelf: "center" }}>VS</div>
           <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 20 }}>{encounter.ship.emoji}</div>
+            <ShipSprite shipId={encounter.ship.id} size={52} flip={true}/>
             <div style={{ fontSize: 16, color: "#ff6b35" }}>PIRATE {encounter.ship.name.toUpperCase()}</div>
             <div style={{ fontSize: 15, color: "#ff6b35" }}>Hull: {enemy?.hull ?? encounter.hull}</div>
+            {encounter.shields > 0 && <div style={{ fontSize: 13, color: "#4fc3f7" }}>Shield: {enemy?.shields ?? encounter.shields}</div>}
+            <div style={{ fontSize: 13, color: "#888888" }}>{encounter.weapon?.name}</div>
           </div>
         </div>
         <div style={{ maxHeight: 80, overflow: "hidden", marginBottom: 10 }}>
@@ -2457,11 +2890,95 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   }
 
   if (encounter.type === "trader") {
+    const { sellGoods = [], buyGoods = [] } = encounter;
+    const cargoUsed = game.cargo.reduce((s, c) => s + c.qty, 0);
+    const cargoFree = game.cargoCapacity - cargoUsed;
+
+    const buyFromTrader = (item) => {
+      if (game.credits < item.price || cargoFree < 1) return;
+      const newCargo = [...game.cargo];
+      const idx = newCargo.findIndex(c => c.id === item.id);
+      if (idx >= 0) {
+        const old = newCargo[idx];
+        newCargo[idx] = { ...old, qty: old.qty + 1, buyPrice: Math.round((old.buyPrice * old.qty + item.price) / (old.qty + 1)) };
+      } else {
+        newCargo.push({ id: item.id, qty: 1, buyPrice: item.price });
+      }
+      onUpdate({ ...game, credits: game.credits - item.price, cargo: newCargo,
+        log: [{ type: "good", text: "Bought 1x " + item.name + " @ " + item.price + " cr" }, ...game.log] });
+    };
+
+    const sellToTrader = (item) => {
+      const held = game.cargo.find(c => c.id === item.id);
+      if (!held || held.qty < 1) return;
+      const profit = item.price - (held.buyPrice || 0);
+      const newCargo = game.cargo.map(c => c.id === item.id ? { ...c, qty: c.qty - 1 } : c).filter(c => c.qty > 0);
+      onUpdate({ ...game, credits: game.credits + item.price, cargo: newCargo,
+        log: [{ type: profit >= 0 ? "good" : "warn", text: "Sold 1x " + item.name + " @ " + item.price + " cr (" + (profit >= 0 ? "+" : "") + profit + ")" }, ...game.log] });
+    };
+
     return (
       <div className="encounter-box" style={{ borderColor: "#00ff88" }}>
-        <div className="encounter-title" style={{ color: "#00ff88" }}>🚀 TRADER ENCOUNTER</div>
-        <div className="encounter-desc">A merchant vessel hails you. They offer to sell you rare goods at market price.</div>
-        <button className="btn btn-green" onClick={onDone}>CONTINUE</button>
+        <div className="encounter-title" style={{ color: "#00ff88" }}>🚀 TRADER VESSEL</div>
+        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 10 }}>
+          A merchant hails you. No police monitoring this exchange.
+          <span style={{ color: "#555588", marginLeft: 8 }}>Hold: {cargoUsed}/{game.cargoCapacity}</span>
+        </div>
+
+        {/* What they sell */}
+        {sellGoods.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 14, color: "#4fc3f7", marginBottom: 4 }}>THEY SELL</div>
+            {sellGoods.map(item => {
+              const base = COMMODITIES.find(c => c.id === item.id)?.base || item.price;
+              const isGood = item.price < base;
+              const canBuy = game.credits >= item.price && cargoFree > 0;
+              return (
+                <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 0", borderBottom:"1px solid #1a1a3a" }}>
+                  <span style={{ fontSize:15, color:"#c0c0ff" }}>{item.name}</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:15, color: isGood ? "#00ff88" : "#ffd700" }}>
+                      {item.price} cr{isGood ? " ↓" : ""}
+                    </span>
+                    <button className="qty-btn" style={canBuy ? {borderColor:"#00ff88",color:"#00ff88"} : {opacity:0.3}}
+                      onClick={() => buyFromTrader(item)}>B</button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* What they buy */}
+        {buyGoods.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 14, color: "#ffd700", marginBottom: 4 }}>THEY BUY — no questions asked</div>
+            {buyGoods.map(item => {
+              const base = COMMODITIES.find(c => c.id === item.id)?.base || item.price;
+              const isPremium = item.price > base * 0.95;
+              const held = game.cargo.find(c => c.id === item.id)?.qty || 0;
+              const canSell = held > 0;
+              return (
+                <div key={item.id} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", padding:"3px 0", borderBottom:"1px solid #1a1a3a" }}>
+                  <span style={{ fontSize:15, color: item.illegal ? "#ff6b35" : "#c0c0ff" }}>
+                    {item.name}{item.illegal ? " ⚠" : ""}
+                    {held > 0 && <span style={{color:"#00ff88",marginLeft:4}}>({held} in hold)</span>}
+                  </span>
+                  <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                    <span style={{ fontSize:15, color: isPremium ? "#00ff88" : "#888888" }}>
+                      {item.price} cr{isPremium ? " ↑" : ""}
+                    </span>
+                    <button className="qty-btn" style={canSell ? {borderColor:"#ff6b35",color:"#ff6b35"} : {opacity:0.3}}
+                      onClick={() => sellToTrader(item)}>S</button>
+                  </div>
+                </div>
+              );
+            })}
+            <div style={{ fontSize:12, color:"#555566", marginTop:4 }}>⚠ = illegal goods · ↑ = above market price</div>
+          </div>
+        )}
+
+        <button className="btn btn-gray" onClick={onDone}>DEPART</button>
       </div>
     );
   }
@@ -2610,7 +3127,7 @@ function MenuModal({ game, onClose, onSave, onNewGame, onTitle }) {
         <div className="stat-row"><span className="stat-label">Commander</span><span className="stat-val">{game.commander}</span></div>
         <div className="stat-row"><span className="stat-label">Day</span><span className="stat-val">{game.days}</span></div>
         <div className="stat-row"><span className="stat-label">Credits</span><span className="stat-val-green">{game.credits.toLocaleString()} cr</span></div>
-        <div className="stat-row"><span className="stat-label">Ship</span><span className="stat-val">{game.ship.emoji} {game.ship.name}</span></div>
+        <div className="stat-row"><span className="stat-label">Ship</span><span className="stat-val" style={{display:"flex",alignItems:"center",gap:6}}><ShipSprite shipId={game.ship.id} size={18}/>{game.ship.name}</span></div>
         <div className="stat-row" style={{ marginBottom: 14 }}><span className="stat-label">Kills</span><span className="stat-val">{game.killed || 0}</span></div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
