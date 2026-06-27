@@ -829,9 +829,9 @@ function checkContractArrival(game, arrivedSystemId) {
     return c;
   });
 
-  // Deadline check
+  // Deadline check — fail overdue contracts
   newGame.activeContracts = (newGame.activeContracts || []).map(c => {
-    if (c.status === "active" && c.deadline < newGame.days) {
+    if (c.status === "active" && c.deadline <= newGame.days) {
       newGame.credits -= c.penalty;
       newGame.reputation = (newGame.reputation || 0) - 1;
       failedContracts.push(c);
@@ -850,6 +850,8 @@ function onPirateKilled(game) {
   newGame.activeContracts = (newGame.activeContracts || []).map(c => {
     if (c.type === "extermination" && c.status === "active" &&
         c.targetSystemId === game.currentSystem) {
+      // Don't count kills on overdue contracts
+      if (c.deadline < game.days) return c;  // use < not <= so deadline day itself still counts
       const done = c.killsCompleted + 1 >= c.killCount;
       if (done) {
         newGame.credits += c.reward;
@@ -857,6 +859,7 @@ function onPirateKilled(game) {
         newGame.log = [{ type: "good", text: "Extermination contract complete! +" + c.reward + " cr" }, ...newGame.log];
         return { ...c, killsCompleted: c.killsCompleted + 1, status: "done" };
       }
+      newGame.log = [{ type: "info", text: "Kill " + (c.killsCompleted + 1) + "/" + c.killCount + " — " + c.title }, ...newGame.log];
       return { ...c, killsCompleted: c.killsCompleted + 1 };
     }
     return c;
@@ -868,28 +871,51 @@ function onPirateKilled(game) {
 function generateQuests(systems) {
   const quests = [];
   const sysIds = systems.map(s => s.id);
-  
+
   const q1sys = pick(sysIds.slice(5));
-  quests.push({ id: "dragonfly", name: "Dragonfly", status: "available", targetSystem: q1sys,
-    desc: "The experimental ship DRAGONFLY, carrying a stolen shield prototype, was last seen near " + systems[q1sys].name + ". Reward: Lightning Shield.",
-    reward: "lightning_shield" });
+  quests.push({ id: "dragonfly", name: "Dragonfly", status: "hidden", targetSystem: q1sys,
+    hint: "Rumours speak of an experimental ship spotted near " + systems[q1sys].name + ".",
+    desc: "The stolen ship DRAGONFLY was last seen near " + systems[q1sys].name + ". Destroy it to claim the experimental shield.",
+    reward: "lightning_shield", emoji: "🐉" });
 
   const q2sys = pick(sysIds.slice(3));
-  quests.push({ id: "alien_invasion", name: "Alien Invasion", status: "available", targetSystem: q2sys, daysLeft: rnd(10, 16),
-    desc: "Alien fleet detected! Warn defenses at " + systems[q2sys].name + " within the time limit.",
-    reward: "fuel_compressor" });
+  quests.push({ id: "alien_invasion", name: "Alien Invasion", status: "hidden", targetSystem: q2sys, daysLeft: rnd(10, 16),
+    hint: "Emergency broadcast: alien fleet detected heading for " + systems[q2sys].name + "!",
+    desc: "Warn defenses at " + systems[q2sys].name + " before the deadline. Reward: Fuel Compressor.",
+    reward: "fuel_compressor", emoji: "👾" });
 
   const q3sys = pick(sysIds.slice(8));
-  quests.push({ id: "wild", name: "Smuggle Wild", status: "available", targetSystem: q3sys,
-    desc: "A shady contact asks you to smuggle someone called Wild to " + systems[q3sys].name + ". Requires beam laser+. Reward: free mercenary.",
-    reward: "mercenary", requiresBeamLaser: true });
+  quests.push({ id: "wild", name: "Smuggle Wild", status: "hidden", targetSystem: q3sys,
+    hint: "A shady figure in the spaceport is looking for a discreet pilot heading toward " + systems[q3sys].name + ".",
+    desc: "Smuggle Wild to " + systems[q3sys].name + ". Requires Beam Laser+. Reward: +1 Pilot.",
+    reward: "mercenary", requiresBeamLaser: true, emoji: "🤝" });
 
   const q4sys = pick(sysIds.slice(2));
-  quests.push({ id: "doctor", name: "Warn the Doctor", status: "available", targetSystem: q4sys, daysLeft: 12,
-    desc: "Travel to " + systems[q4sys].name + " in 12 days and stop the experiment. Reward: Portable Singularity.",
-    reward: "singularity" });
+  quests.push({ id: "doctor", name: "Warn the Doctor", status: "hidden", targetSystem: q4sys, daysLeft: 12,
+    hint: "Urgent message intercepted: a scientist on " + systems[q4sys].name + " must be warned within 12 days.",
+    desc: "Reach " + systems[q4sys].name + " in 12 days and stop the experiment. Reward: Portable Singularity.",
+    reward: "singularity", emoji: "🔬" });
 
   return quests;
+}
+
+// Reveal quests through news on planet arrival
+function revealQuestHints(game, arrivedSystemId) {
+  let newGame = { ...game };
+  const hidden = newGame.quests.filter(q => q.status === "hidden");
+  if (hidden.length === 0) return newGame;
+
+  // Each visit: 60% chance to reveal one hidden quest via news
+  if (Math.random() > 0.6) return newGame;
+
+  const q = pick(hidden);
+  newGame.quests = newGame.quests.map(x =>
+    x.id === q.id ? { ...x, status: "available" } : x
+  );
+  // Add hint to news feed
+  newGame.news = [{ text: q.hint, quest: true }, ...(newGame.news || [])].slice(0, 8);
+  newGame.log = [{ type: "warn", text: "New special contract available — check JOBS." }, ...newGame.log];
+  return newGame;
 }
 
 // ─── QUEST COMPLETION CHECK ─────────────────────────────────────────────────
@@ -1017,64 +1043,125 @@ function generatePirateShip(system, playerKills) {
 
 function generateEncounter(currentSystem, player) {
   const pilotSkill = player.skills?.pilot || 0;
-  const policeChance = currentSystem.police * 15 * (1 - pilotSkill * 0.04); // Pilot 10 = -40%
-  const pirateChance = currentSystem.pirates * 20;
+  const rep = player.reputation || 0;
   const specialChance = 12;
+
+  // Police: more aggressive toward criminals, less toward heroes
+  // At rep -7..-10: police actively hunt (doubled chance)
+  // At rep +7..+10: police give benefit of doubt (halved chance)
+  const policeBase = currentSystem.police * 15 * (1 - pilotSkill * 0.04);
+  const policeChance = rep <= -7 ? policeBase * 2
+    : rep >= 7 ? policeBase * 0.5
+    : policeBase;
+
+  // Pirates: heroes attract stronger/more aggressive pirates
+  // Pirates: criminals may be feared by weak pirates
+  const pirateChance = currentSystem.pirates * 20;
+
+  // Merchant: always possible, player can attack them as pirate
+  const merchantChance = 15;
+
+  // Bounty hunters: hunt players with rep <= -5
+  const bountyChance = rep <= -5 ? Math.abs(rep) * 3 : 0;
+
   const r = rnd(0, 100);
+
+  // Bounty hunters first (most dangerous for criminals)
+  if (rep <= -5 && r < bountyChance) {
+    const tierBonus = Math.floor(Math.abs(rep) / 3); // better ships for worse criminals
+    const shipPool = SHIPS.slice(Math.min(4, tierBonus), Math.min(8, 4 + tierBonus));
+    const ship = pick(shipPool);
+    return {
+      type: "police", sub: "bounty_hunter",
+      ship, weapon: WEAPONS[Math.min(2, tierBonus)],
+      hull: ship.hull + 30, hullMax: ship.hull + 30,
+      shields: tierBonus >= 2 ? 200 : 0, shieldsMax: tierBonus >= 2 ? 200 : 0,
+      bounty: true,
+    };
+  }
 
   if (r < specialChance) {
     const specials = ["marie_celeste","famous_captain","sealed_cargo","tonic","alien_machine","mercenary_offer"];
     return { type: "special", sub: pick(specials) };
   }
+
   if (r < specialChance + pirateChance) {
     const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(currentSystem, player.killed);
-    return { type: "pirate", ship, weapon, hull, hullMax, shields, shieldsMax };
+
+    // High rep (+7..+10): pirates know you — come angrier, better equipped
+    const angryMod = rep >= 7 ? 1 : 0;
+    const finalWeapon = angryMod && weapon.id !== "military" ? WEAPONS[Math.min(WEAPONS.length-1, WEAPONS.indexOf(weapon)+1)] : weapon;
+    const finalShields = angryMod ? Math.max(shields, 100) : shields;
+
+    // Low rep (-7..-10): weak pirates may surrender without fighting
+    const cowardChance = rep <= -7
+      ? Math.max(0, (Math.abs(rep) - 6) * 0.10 - (SHIPS.indexOf(ship) * 0.05))
+      : 0;
+
+    const maxWaves = currentSystem.pirates >= 3 ? rnd(1, 3)
+      : currentSystem.pirates >= 2 ? rnd(1, 2)
+      : Math.random() < 0.25 ? 2 : 1;
+
+    return {
+      type: "pirate", ship,
+      weapon: finalWeapon,
+      hull, hullMax,
+      shields: finalShields, shieldsMax: finalShields,
+      wave: 1, maxWaves,
+      cowardChance,  // pirate may flee on sight
+      angry: angryMod > 0,
+    };
   }
+
   if (r < specialChance + pirateChance + policeChance) {
+    // Criminal player: police is hostile (wants to arrest)
+    const hostile = rep <= -6;
+    if (hostile) {
+      const tierBonus = Math.floor(Math.abs(rep) / 3);
+      const ship = SHIPS[Math.min(SHIPS.length-1, 3 + tierBonus)];
+      return {
+        type: "police", sub: "hostile",
+        ship, weapon: WEAPONS[Math.min(2, tierBonus)],
+        hull: ship.hull, hullMax: ship.hull,
+        shields: 100, shieldsMax: 100,
+      };
+    }
     return { type: "police", contraband: player.cargo.some(c => {
       const com = COMMODITIES.find(x => x.id === c.id);
       return com && com.illegal;
     })};
   }
-  if (r < specialChance + pirateChance + policeChance + 15) {
-    // Trader sells 2-3 legal goods at slight discount
-    // Trader BUYS anything including illegal - sometimes at premium
+
+  if (r < specialChance + pirateChance + policeChance + merchantChance) {
+    // Merchant ship — player can trade or (if pirate) attack
     const sellGoods = [];
     const buyGoods  = [];
     const legalPool   = COMMODITIES.filter(c => !c.illegal);
     const illegalPool = COMMODITIES.filter(c => c.illegal);
     const usedSell = new Set();
-
-    // What they sell: 2-3 legal items, 80-95% of base (slight discount)
-    const sellCount = rnd(2, 3);
-    for (let i = 0; i < sellCount; i++) {
+    for (let i = 0; i < rnd(2,3); i++) {
       const available = legalPool.filter(x => !usedSell.has(x.id));
       if (!available.length) break;
       const c = available[Math.floor(Math.random() * available.length)];
       usedSell.add(c.id);
-      sellGoods.push({ id: c.id, name: c.name, price: Math.round(c.base * (0.80 + Math.random() * 0.15)), qty: rnd(1, 5) });
+      sellGoods.push({ id: c.id, name: c.name, price: Math.round(c.base * (0.80 + Math.random() * 0.15)) });
     }
-
-    // What they buy: mix of legal + possibly illegal, sometimes at premium
-    // They always buy 1-2 illegal items if any exist
-    const buyPool = [...legalPool.slice(0, 3), ...illegalPool];
     const usedBuy = new Set();
-    const buyCount = rnd(2, 4);
-    for (let i = 0; i < buyCount; i++) {
-      const available = buyPool.filter(x => !usedBuy.has(x.id));
+    for (let i = 0; i < rnd(2,4); i++) {
+      const available = [...legalPool.slice(0,3), ...illegalPool].filter(x => !usedBuy.has(x.id));
       if (!available.length) break;
-      // Weight toward illegal
       const c = Math.random() < 0.5 && illegalPool.filter(x => !usedBuy.has(x.id)).length > 0
         ? illegalPool.filter(x => !usedBuy.has(x.id))[0]
         : available[Math.floor(Math.random() * available.length)];
       usedBuy.add(c.id);
-      // Illegal: pay 90-130% of base. Legal: pay 85-105%
       const mult = c.illegal ? (0.90 + Math.random() * 0.40) : (0.85 + Math.random() * 0.20);
       buyGoods.push({ id: c.id, name: c.name, price: Math.round(c.base * mult), illegal: c.illegal });
     }
-
-    return { type: "trader", sellGoods, buyGoods };
+    // Pick a random merchant ship (small/mid class)
+    const merchantShip = SHIPS[rnd(1, 5)];
+    return { type: "trader", sellGoods, buyGoods, merchantShip };
   }
+
   return null;
 }
 
@@ -1082,7 +1169,8 @@ function generateEncounter(currentSystem, player) {
 
 function doCombatRound(player, enemy, playerAction) {
   const log = [];
-  let newPlayer = { ...player };
+  // Deep copy shields to prevent mutation of React state
+  let newPlayer = { ...player, shields: player.shields.map(s => ({ ...s })) };
   let newEnemy = { ...enemy };
   let ended = false;
   let result = null;
@@ -1106,6 +1194,30 @@ function doCombatRound(player, enemy, playerAction) {
       }
     } else {
       log.push({ type: "info", text: "Your shot missed." });
+    }
+  }
+
+  if (!ended) {
+    const enemyDmg = enemy.weapon ? rnd(5, enemy.weapon.damage) : rnd(3, 10);
+    const effDef = effectiveSkills(newPlayer);
+    const evadeChance = 0.2 + effDef.pilot * 0.04;
+
+    // Pirate flee attempt: when hull < 25%
+    // Escape chance = pirate pilot advantage OVER player, no base bonus
+    // Positive only if pirate is genuinely better pilot than player
+    if (!ended && newEnemy.hull > 0 && newEnemy.hull < newEnemy.hullMax * 0.25) {
+      const shipIdx = SHIPS.findIndex(s => s.id === enemy.ship?.id) ?? 2;
+      // Pirate pilot: 0–10 scale matching ship tier (Flea=1, Wasp=9)
+      const piratePilotSkill = Math.round(1 + shipIdx * 0.88);
+      const playerPilotSkill = effDef.pilot;
+      // Escape chance: base 15% + 5% per level pirate exceeds player, capped 10-70%
+      const escapeChance = Math.min(0.70, Math.max(0.10,
+        0.15 + (piratePilotSkill - playerPilotSkill) * 0.05
+      ));
+      if (Math.random() < escapeChance) {
+        log.push({ type: "warn", text: "Pirate ship is badly damaged — they're making a run for it!" });
+        ended = true; result = "pirate_fled";
+      }
     }
   }
 
@@ -1162,8 +1274,7 @@ function createNewGame(name, skills) {
   const startNews = [
     { text: "Welcome to Lave. " + TECH_LEVELS[startSys.tech] + " economy, " + GOV_TYPES[startSys.gov] + " government." },
     ...startEvents.map(e => ({ text: e.text, event: true })),
-    { text: quests[0].desc, quest: true },
-    { text: quests[1].desc, quest: true },
+    { text: "Special contracts become available as you explore the galaxy." },
   ];
   return {
     commander: name,
@@ -1626,10 +1737,30 @@ function StatusBar({ game, onMenu }) {
         <div>
           <div style={{ fontSize: 16, color: "#555588", marginBottom: 2 }}>SHIELDS</div>
           <div className="progress-bar">
-            <div className="progress-fill" style={{ width: (game.shields.length > 0 ? (game.shields[0].current / game.shields[0].max * 100) : 0) + "%", background: "#4fc3f7" }} />
+            <div className="progress-fill" style={{ width: (game.shields.length > 0 ? (game.shields.reduce((s,sh)=>s+sh.current,0) / game.shields.reduce((s,sh)=>s+sh.max,0) * 100) : 0) + "%", background: "#4fc3f7" }} />
           </div>
         </div>
       </div>
+      {(() => {
+        const rep = game.reputation || 0;
+        const repLabel = rep >= 7 ? "LEGEND" : rep >= 4 ? "RESPECTED" : rep >= 1 ? "NEUTRAL+" :
+          rep === 0 ? "NEUTRAL" : rep >= -3 ? "SUSPECT" : rep >= -6 ? "WANTED" : "PIRATE";
+        const repColor = rep >= 4 ? "#00ff88" : rep >= 0 ? "#8888bb" : rep >= -3 ? "#ffd700" : rep >= -6 ? "#ff6b35" : "#ff4444";
+        const bars = Math.round((rep + 10) / 2); // 0-10 bars out of 10
+        return (
+          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ fontSize: 13, color: "#555588", width: 56 }}>REP</div>
+            <div style={{ display: "flex", gap: 2 }}>
+              {Array.from({length: 10}).map((_, i) => (
+                <div key={i} style={{ width: 12, height: 8, borderRadius: 1,
+                  background: i < bars ? repColor : "#1a1a3a", border: "1px solid #2a2a4a" }}/>
+              ))}
+            </div>
+            <div style={{ fontSize: 13, color: repColor }}>{repLabel}</div>
+            {rep <= -5 && <div style={{ fontSize: 12, color: "#ff4444" }}>⚠ HUNTED</div>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1919,6 +2050,17 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
       }
     }
 
+    // Check contract deadlines on every jump
+    newGame.activeContracts = (newGame.activeContracts || []).map(c => {
+      if (c.status === "active" && c.deadline <= newGame.days) {
+        newGame.credits -= c.penalty;
+        newGame.reputation = (newGame.reputation || 0) - 1;
+        newGame.log = [{ type: "bad", text: "Contract FAILED: " + c.title + " — penalty " + c.penalty + " cr" }, ...newGame.log];
+        return { ...c, status: "failed" };
+      }
+      return c;
+    });
+
     // Debt interest: 1% per day
     if (newGame.debt > 0) {
       const interest = Math.ceil(newGame.debt * 0.01);
@@ -1981,9 +2123,33 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     // Generate bulletin board for new system
     newGame.bulletinBoard = generateContracts(arrivedSys, newGame.galaxy, newGame.days);
 
+    // Reveal quest hints via news
+    newGame = revealQuestHints(newGame, selected);
+
     // Check quest arrivals
     const { newGame: questGame, popups } = checkQuestArrival(newGame, selected);
     newGame = questGame;
+
+    // Trigger assassination boss fight if we just arrived at target
+    const pendingAssassination = newGame.activeContracts?.find(
+      c => c.type === "assassination" && c.status === "pending_fight"
+    );
+    if (pendingAssassination) {
+      const bossShip = SHIPS[Math.min(SHIPS.length - 1, 5 + rnd(0, 2))]; // Hornet-Grasshopper tier boss
+      const bossEnc = {
+        type: "pirate",
+        sub: "assassination",
+        contractId: pendingAssassination.id,
+        ship: { ...bossShip, name: pendingAssassination.targetName },
+        weapon: WEAPONS[2], // Military laser
+        hull: bossShip.hull + 50, hullMax: bossShip.hull + 50,
+        shields: 200, shieldsMax: 200,
+        wave: 1, maxWaves: 1,
+      };
+      newGame.log = [{ type: "bad", text: "⚠ " + pendingAssassination.targetName + " spotted! Engaging!" }, ...newGame.log];
+      onEncounter(newGame, bossEnc);
+      return;
+    }
 
     const enc = generateEncounter(newGame.galaxy[selected], newGame);
 
@@ -2041,25 +2207,75 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
         {/* PATROL — active contracts targeting current system */}
         {(() => {
           const patrolContracts = (game.activeContracts || []).filter(c =>
-            c.status === "active" &&
+            (c.status === "active" || c.status === "pending_fight") &&
             (c.type === "extermination" || c.type === "assassination") &&
             c.targetSystemId === game.currentSystem
           );
-          if (patrolContracts.length === 0) return null;
+
+          // Debug: show all combat contracts regardless of system
+          const allCombatContracts = (game.activeContracts || []).filter(c =>
+            c.type === "extermination" || c.type === "assassination"
+          );
+
+          if (patrolContracts.length === 0) {
+            if (allCombatContracts.length === 0) return null;
+            // Show inactive contracts with explanation
+            return (
+              <div style={{ marginTop: 10, border: "1px solid #2a2a5a", borderRadius: 4, padding: 10 }}>
+                <div style={{ fontSize: 14, color: "#555588", marginBottom: 6 }}>Combat contracts:</div>
+                {allCombatContracts.map(c => (
+                  <div key={c.id} style={{ fontSize: 13, color: "#444466", marginBottom: 4 }}>
+                    {c.emoji} {c.title}
+                    <span style={{ marginLeft: 6, color:
+                      c.status === "failed" ? "#ff4444" :
+                      c.targetSystemId !== game.currentSystem ? "#888800" : "#555588"
+                    }}>
+                      {c.status === "failed" ? "— FAILED (expired)" :
+                       c.targetSystemId !== game.currentSystem
+                         ? "— patrol in " + (game.galaxy.find(s => s.id === c.targetSystemId)?.name || "?")
+                         : "— " + c.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            );
+          }
           const sys = game.galaxy[game.currentSystem];
           const hasPirates = sys.pirates >= 1;
 
           const patrol = () => {
-            // Patrolling costs 1 day, guaranteed encounter if pirates present
             let newGame = {
               ...game,
               days: game.days + 1,
               shields: game.shields.map(s => ({ ...s, current: Math.min(s.max, s.current + 10) })),
               log: [{ type: "info", text: "Patrolling " + sys.name + "..." }, ...game.log],
             };
+
+            // Assassination: always trigger boss fight
+            const assassinContract = patrolContracts.find(c => c.type === "assassination");
+            if (assassinContract) {
+              const bossShip = SHIPS[Math.min(SHIPS.length - 1, 5 + rnd(0, 2))];
+              const bossEnc = {
+                type: "pirate", sub: "assassination",
+                contractId: assassinContract.id,
+                ship: { ...bossShip, name: assassinContract.targetName },
+                weapon: WEAPONS[2], hull: bossShip.hull + 50, hullMax: bossShip.hull + 50,
+                shields: 200, shieldsMax: 200, wave: 1, maxWaves: 1,
+              };
+              // Mark as pending_fight
+              newGame.activeContracts = newGame.activeContracts.map(c =>
+                c.id === assassinContract.id ? { ...c, status: "pending_fight" } : c
+              );
+              newGame.log = [{ type: "bad", text: "⚠ " + assassinContract.targetName + " located! Engaging!" }, ...newGame.log];
+              onEncounter(newGame, bossEnc);
+              return;
+            }
+
+            // Extermination: random pirate
             if (hasPirates) {
               const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(sys, game.killed);
-              const enc = { type: "pirate", ship, weapon, hull, hullMax, shields, shieldsMax };
+              const enc = { type: "pirate", ship, weapon, hull, hullMax, shields, shieldsMax, wave: 1, maxWaves: 1,
+                patrolContractSystem: game.currentSystem }; // explicit system for kill tracking
               onEncounter(newGame, enc);
             } else {
               newGame.log = [{ type: "warn", text: "Patrol found nothing — pirates may have fled." }, ...newGame.log];
@@ -2199,12 +2415,27 @@ function ShipScreen({ game, onUpdate }) {
   };
   const repairHull = () => {
     const needed = game.hullMax - game.hull;
-    const engineerDiscount = 1 - (game.skills.engineer || 0) * 0.05; // Engineer 10 = -50%
+    const engineerDiscount = 1 - (game.skills.engineer || 0) * 0.05;
     const costPerHp = Math.max(1, Math.round(2 * engineerDiscount));
     const cost = needed * costPerHp;
     if (game.credits < cost || needed === 0) return;
     onUpdate({ ...game, hull: game.hullMax, credits: game.credits - cost,
-      log: [{ type: "good", text: "Hull repaired for " + cost + " cr (Engineer discount applied)" }, ...game.log] });
+      log: [{ type: "good", text: "Hull repaired for " + cost + " cr" + (game.skills.engineer > 0 ? " (Eng discount)" : "") }, ...game.log] });
+  };
+
+  const repairShields = () => {
+    const damaged = game.shields.filter(s => s.current < s.max);
+    if (!damaged.length) return;
+    // Shield repair: 1 cr per strength point restored, Engineer discount applies
+    const engineerDiscount = 1 - (game.skills.engineer || 0) * 0.05;
+    const totalNeeded = damaged.reduce((sum, s) => sum + (s.max - s.current), 0);
+    const cost = Math.max(1, Math.round(totalNeeded * engineerDiscount));
+    if (game.credits < cost) return;
+    onUpdate({ ...game,
+      shields: game.shields.map(s => ({ ...s, current: s.max })),
+      credits: game.credits - cost,
+      log: [{ type: "good", text: "Shields recharged for " + cost + " cr" }, ...game.log],
+    });
   };
   const buyShip = (s) => {
     const val = Math.floor(SHIPS.find(x => x.id === game.ship.id)?.price * 0.7 || 0);
@@ -2258,6 +2489,7 @@ function ShipScreen({ game, onUpdate }) {
   };
 
   const canRepair = game.hull < game.hullMax && sys.tech >= 2;
+  const canRepairShields = game.shields.some(s => s.current < s.max) && sys.tech >= 2;
 
   return (
     <div>
@@ -2291,24 +2523,47 @@ function ShipScreen({ game, onUpdate }) {
               {(game.specialItems || []).includes("singularity") && (
                 <SingularityItem game={game} onUpdate={onUpdate} />
               )}
-              {(game.specialItems || []).includes("lightning_shield") && (
-                <div className="stat-row">
-                  <span className="stat-label">⚡ Lightning Shield</span>
-                  <span className="stat-val-blue">Installed on ship</span>
-                </div>
-              )}
+              {(game.specialItems || []).includes("lightning_shield") && (() => {
+                const hasSlot = game.shields.length < game.ship.slots_s;
+                const installShield = () => {
+                  const ls = { id: "lightning", name: "Lightning Shield", strength: 350, max: 350, current: 350, price: 80000 };
+                  onUpdate({ ...game,
+                    shields: [...game.shields, ls],
+                    specialItems: (game.specialItems || []).filter(x => x !== "lightning_shield"),
+                    log: [{ type: "good", text: "Lightning Shield installed!" }, ...game.log],
+                  });
+                };
+                return (
+                  <div className="stat-row">
+                    <span className="stat-label">⚡ Lightning Shield</span>
+                    {hasSlot
+                      ? <button className="btn btn-blue" style={{ fontSize: 13, padding: "3px 8px" }} onClick={installShield}>INSTALL</button>
+                      : <span className="stat-val" style={{ color: "#ff6b35" }}>No shield slot free</span>
+                    }
+                  </div>
+                );
+              })()}
             </div>
           )}
-          {canRepair && (() => {
+          {(canRepair || canRepairShields) && (() => {
             const needed = game.hullMax - game.hull;
             const discount = 1 - (game.skills.engineer || 0) * 0.05;
             const costPerHp = Math.max(1, Math.round(2 * discount));
-            const cost = needed * costPerHp;
+            const hullCost = needed * costPerHp;
+            const shieldNeeded = game.shields.reduce((sum, s) => sum + (s.max - s.current), 0);
+            const shieldCost = Math.max(1, Math.round(shieldNeeded * discount));
             return (
-              <div style={{ marginTop: 10 }}>
-                <button className="btn btn-green" onClick={repairHull} style={{ fontSize: 15 }}>
-                  REPAIR HULL ({cost} cr{game.skills.engineer > 0 ? " · Eng discount" : ""})
-                </button>
+              <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {canRepair && (
+                  <button className="btn btn-green" onClick={repairHull} style={{ fontSize: 15, flex: 1 }}>
+                    REPAIR HULL ({hullCost} cr{game.skills.engineer > 0 ? " · Eng" : ""})
+                  </button>
+                )}
+                {canRepairShields && (
+                  <button className="btn btn-blue" onClick={repairShields} style={{ fontSize: 15, flex: 1 }}>
+                    RECHARGE SHIELDS ({shieldCost} cr)
+                  </button>
+                )}
               </div>
             );
           })()}
@@ -2410,9 +2665,15 @@ function ShipScreen({ game, onUpdate }) {
           <div className="panel-title">Shields ({game.shields.length}/{game.ship.slots_s} slots)</div>
           {game.shields.map((s, i) => (
             <div key={i} className="stat-row">
-              <span className="stat-label">{s.name} <span style={{color:"#4fc3f7"}}>{s.current}/{s.max}</span></span>
+              <span className="stat-label">
+                {s.id === "lightning" && <span style={{color:"#ffd700"}}>⚡ </span>}
+                {s.name}
+                {s.id === "lightning" && <span style={{color:"#ffd700", fontSize:12}}> [UNIQUE]</span>}
+                <span style={{color:"#4fc3f7", marginLeft:6}}>{s.current}/{s.max}</span>
+              </span>
               <button className="btn btn-red" style={{ fontSize: 13, padding: "3px 8px" }}
                 onClick={() => {
+                  if (s.id === "lightning" && !window.confirm("Lightning Shield is a unique quest reward — sell for " + Math.floor(s.price * (0.7 + (game.skills.trader||0)*0.02)).toLocaleString() + " cr?")) return;
                   const traderBonus = (game.skills.trader || 0) * 0.02;
                   const sellPrice = Math.floor(s.price * (0.7 + traderBonus));
                   onUpdate({ ...game,
@@ -2526,11 +2787,40 @@ function BankScreen({ game, onUpdate }) {
           <button className={game.debt > 0 && game.credits > 0 ? "btn btn-green" : "btn btn-disabled"} onClick={repay}>REPAY</button>
         </div>
       </div>
+      {(game.reputation || 0) <= -3 && (() => {
+        const rep = game.reputation || 0;
+        const clearCost = Math.abs(rep) * 1000;
+        const newRep = Math.min(-1, rep + 3);
+        const canClear = game.credits >= clearCost;
+        return (
+          <div style={{ marginTop: 14, border: "1px solid #ff6b35", borderRadius: 4, padding: 10 }}>
+            <div style={{ fontSize: 15, color: "#ff6b35", marginBottom: 6 }}>⚠ Criminal Record — Rep {rep}</div>
+            <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 8 }}>
+              Pay {clearCost.toLocaleString()} cr to clear part of your record → Rep {newRep}
+              {rep <= -7 && <span style={{ color: "#ff4444" }}> · Bounty hunters are active</span>}
+            </div>
+            <button className={"btn " + (canClear ? "btn-gold" : "btn-disabled")}
+              onClick={() => {
+                if (!canClear) return;
+                onUpdate({ ...game,
+                  credits: game.credits - clearCost,
+                  reputation: newRep,
+                  log: [{ type: "good", text: "Paid " + clearCost + " cr to clear criminal record. Rep: " + newRep }, ...game.log],
+                });
+              }}>
+              PAY FINE ({clearCost.toLocaleString()} cr)
+            </button>
+          </div>
+        );
+      })()}
       {game.credits >= 500000 && (
         <div style={{ marginTop: 14, border: "1px solid #ffd700", borderRadius: 4, padding: 10 }}>
           <div style={{ fontSize: 16, color: "#ffd700", marginBottom: 8 }}>🌙 MOON FOR SALE — UTOPIA SYSTEM</div>
           <div style={{ fontSize: 15, color: "#aaa8cc", marginBottom: 8 }}>Retire in luxury! Cost: 500,000 cr</div>
-          <button className="btn btn-gold" onClick={() => onUpdate({ ...game, credits: game.credits - 500000, retired: true })}>
+          <button className="btn btn-gold" onClick={() => {
+            if (game.credits < 500000) return;
+            onUpdate({ ...game, credits: game.credits - 500000, retired: true });
+          }}>
             BUY MOON & RETIRE
           </button>
         </div>
@@ -2588,7 +2878,7 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
     onUpdate(newGame);
   };
 
-  const daysLeft = (c) => c.deadline - game.days;
+  const daysLeft = (c) => Math.max(0, c.deadline - game.days);
   const urgentColor = (dl) => dl <= 2 ? "#ff6b35" : dl <= 4 ? "#ffd700" : "#8888bb";
 
   return (
@@ -2686,7 +2976,60 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
         </div>
       )}
 
-      {/* Completed/failed */}
+      {/* Special Contracts — story quests revealed through news */}
+      {(() => {
+        const availableQuests = (game.quests || []).filter(q => q.status === "available");
+        const doneQuests = (game.quests || []).filter(q => q.status === "done" || q.status === "failed");
+        if (availableQuests.length === 0 && doneQuests.length === 0) return null;
+        return (
+          <div className="panel">
+            <div className="panel-title">✦ Special Contracts</div>
+            {availableQuests.map(q => {
+              const targetSys = q.targetSystem !== undefined ? game.galaxy.find(s => s.id === q.targetSystem) : null;
+              const dl = q.daysLeft;
+              return (
+                <div key={q.id} style={{ padding:"8px 0", borderBottom:"1px solid #1a1a3a" }}>
+                  <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                    <div style={{ fontSize:16, color:"#ffd700" }}>{q.emoji} {q.name}</div>
+                    {dl !== undefined && (
+                      <div style={{ fontSize:14, color: dl <= 3 ? "#ff6b35" : "#ffd700" }}>⏱ {dl}d</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize:14, color:"#8888bb", margin:"4px 0" }}>{q.desc}</div>
+                  {q.requiresBeamLaser && (() => {
+                    const hasBeam = game.weapons.some(w => w.id === "beam" || w.id === "military");
+                    return (
+                      <div style={{ fontSize:13, color: hasBeam ? "#00ff88" : "#ff6b35", marginBottom:4 }}>
+                        {hasBeam ? "✓ Beam Laser equipped" : "✗ Requires Beam Laser or better"}
+                      </div>
+                    );
+                  })()}
+                  {targetSys && (
+                    <button className="btn btn-blue" style={{ fontSize:13, padding:"3px 8px", marginTop:4 }}
+                      onClick={() => onPlotCourse(targetSys.id)}>
+                      PLOT COURSE → {targetSys.name}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {doneQuests.length > 0 && (
+              <div style={{ marginTop:6 }}>
+                {doneQuests.map(q => (
+                  <div key={q.id} className="stat-row" style={{ opacity:0.6 }}>
+                    <span style={{ fontSize:14, color:"#8888bb" }}>{q.emoji} {q.name}</span>
+                    <span className={"badge " + (q.status === "done" ? "badge-green" : "badge-red")}>
+                      {q.status === "done" ? "DONE" : "FAILED"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Completed/failed regular contracts */}
       {done.length > 0 && (
         <div className="panel">
           <div className="panel-title">History ({done.length})</div>
@@ -2712,56 +3055,22 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
   );
 }
 
-function QuestsScreen({ game, onPlotCourse }) {
+function LogScreen({ game }) {
   return (
     <div>
-      {game.quests.map(q => {
-        const targetSys = q.targetSystem !== undefined ? game.galaxy.find(s => s.id === q.targetSystem) : null;
-        return (
-          <div key={q.id} className="panel" style={{ borderColor: q.status === "done" ? "#00ff8844" : q.status === "failed" ? "#ff6b3544" : "#2a2a6a" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontSize: 17, color: q.status === "done" ? "#00ff88" : q.status === "failed" ? "#ff6b35" : "#ffd700" }}>{q.name}</div>
-              <span className={"badge " + (q.status === "done" ? "badge-green" : q.status === "failed" ? "badge-red" : "badge-gold")}>
-                {q.status.toUpperCase()}
-              </span>
-            </div>
-            <div style={{ fontSize: 16, color: "#8888bb", lineHeight: 1.5, marginBottom: 6 }}>{q.desc}</div>
-            {q.status === "available" && targetSys && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-                <span style={{ fontSize: 16, color: "#555588" }}>Target:</span>
-                <span style={{ fontSize: 16, color: "#4fc3f7" }}>{targetSys.name}</span>
-                <button className="btn btn-blue" style={{ fontSize: 16, padding: "2px 8px" }}
-                  onClick={() => onPlotCourse(targetSys.id)}>
-                  PLOT COURSE →
-                </button>
-              </div>
-            )}
-            {q.daysLeft !== undefined && q.status === "available" && (
-              <div style={{ fontSize: 16, color: q.daysLeft <= 2 ? "#ff6b35" : "#ffd700", marginTop: 4 }}>
-                ⏱ {q.daysLeft} days remaining
-              </div>
-            )}
-          </div>
-        );
-      })}
       <div className="panel">
         <div className="panel-title">News Feed</div>
-        {game.news.map((n, i) => (
+        {(game.news || []).map((n, i) => (
           <div key={i} className={"news-item" + (n.quest ? " quest" : n.event ? " danger" : "")}>
             {n.event && "⚠ "}{n.quest && "► "}{n.text}
           </div>
         ))}
-        {game.news.length === 0 && <div style={{ fontSize: 16, color: "#555588" }}>No news at this location.</div>}
+        {(!game.news || game.news.length === 0) && <div style={{ fontSize:16, color:"#555588" }}>No news.</div>}
       </div>
-    </div>
-  );
-}
-
-function LogScreen({ game }) {
-  return (
-    <div className="panel">
-      <div className="panel-title">Captain's Log</div>
-      {game.log.map((e, i) => <div key={i} className={"log-entry " + (e.type || "")}>{e.text}</div>)}
+      <div className="panel">
+        <div className="panel-title">Captain's Log</div>
+        {game.log.map((e, i) => <div key={i} className={"log-entry " + (e.type || "")}>{e.text}</div>)}
+      </div>
     </div>
   );
 }
@@ -2792,34 +3101,115 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
     onDone();
   };
 
+  const gameRef = React.useRef(game);
+  gameRef.current = game;
+
   const fightRound = useCallback((action) => {
     if (!enemy || phase === "ended") return;
     setPhase("fighting");
-    const { player: newPlayer, enemy: newEnemy, log: roundLog, ended, result } = doCombatRound(game, enemy, action || "fight");
+    const currentGame = gameRef.current;
+    const { player: newPlayer, enemy: newEnemy, log: roundLog, ended, result } = doCombatRound(currentGame, enemy, action || "fight");
     setCombatLog(l => [...roundLog, ...l].slice(0, 20));
     setEnemy(newEnemy);
     if (ended) {
       setPhase("ended");
-      let finalGame = { ...game, hull: newPlayer.hull, shields: newPlayer.shields, cargo: newPlayer.cargo };
+      let finalGame = { ...currentGame, hull: newPlayer.hull, shields: newPlayer.shields, cargo: newPlayer.cargo };
       if (result === "win") {
-        // Bounty scales with enemy ship tier: Flea=200, Wasp=2000
+        if (encounter.sub === "assassination" && encounter.contractId) {
+          const contract = finalGame.activeContracts?.find(c => c.id === encounter.contractId);
+          if (contract) {
+            finalGame.credits += contract.reward;
+            finalGame.reputation = (finalGame.reputation || 0) + 3;
+            finalGame.activeContracts = finalGame.activeContracts.map(c =>
+              c.id === encounter.contractId ? { ...c, status: "done" } : c
+            );
+            finalGame.log = [{ type: "good", text: contract.targetName + " eliminated! Reward: " + contract.reward.toLocaleString() + " cr" }, ...finalGame.log];
+          }
+        } else if (encounter.sub === "dragonfly") {
+          const lightningShield = { id: "lightning", name: "Lightning Shield", strength: 350, max: 350, current: 350, price: 80000 };
+          const hasSlot = finalGame.shields.length < finalGame.ship.slots_s;
+          if (hasSlot) {
+            finalGame.shields = [...finalGame.shields, lightningShield];
+            finalGame.log = [{ type: "good", text: "DRAGONFLY destroyed! Lightning Shield installed." }, ...finalGame.log];
+          } else {
+            finalGame.specialItems = [...(finalGame.specialItems || []), "lightning_shield"];
+            finalGame.log = [{ type: "good", text: "DRAGONFLY destroyed! Lightning Shield salvaged — no slots free. Find it in SHIP → STATUS." }, ...finalGame.log];
+          }
+          // Mark quest done
+          finalGame.quests = finalGame.quests.map(q =>
+            q.id === "dragonfly" ? { ...q, status: "done" } : q
+          );
+        } else {
+          // Regular pirate bounty
+          const shipIdx = SHIPS.findIndex(s => s.id === encounter?.ship?.id) ?? 0;
+          const bounty = Math.round((300 + shipIdx * 200 + rnd(0, 300)) / 50) * 50;
+          finalGame.credits = finalGame.credits + bounty;
+          finalGame.killed = (finalGame.killed || 0) + 1;
+          finalGame = onPirateKilled(finalGame);
+          finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
+
+          // Combat skill gain: beating a stronger enemy may increase pilot or fighter
+          // Difficulty = enemy ship tier vs player ship tier + skills
+          const eff = effectiveSkills(finalGame);
+          const playerTier = SHIPS.findIndex(s => s.id === finalGame.ship.id) ?? 0;
+          const enemyTier = shipIdx;
+          const difficulty = (enemyTier - playerTier) + (5 - eff.fighter) * 0.3;
+          // Higher difficulty = higher chance of skill gain; capped at 60%
+          const gainChance = Math.min(0.60, Math.max(0, difficulty * 0.12));
+          if (gainChance > 0 && Math.random() < gainChance) {
+            // Gain pilot or fighter — whichever is lower, but never above 10
+            const gainSkill = eff.pilot <= eff.fighter ? "pilot" : "fighter";
+            const current = finalGame.skills[gainSkill];
+            if (current < 10) {
+              finalGame.skills = { ...finalGame.skills, [gainSkill]: current + 1 };
+              const skillName = gainSkill.charAt(0).toUpperCase() + gainSkill.slice(1);
+              finalGame.log = [{ type: "good", text: "Tough fight — " + skillName + " skill increased to " + (current + 1) + "!" }, ...finalGame.log];
+            }
+          }
+
+          // Wave attack: check if another pirate jumps in
+          const currentWave = encounter.wave || 1;
+          const maxWaves = encounter.maxWaves || 1;
+          if (currentWave < maxWaves) {
+            // Spawn next wave after short delay
+            const sys = finalGame.galaxy[finalGame.currentSystem];
+            const nextPirate = generatePirateShip(sys, finalGame.killed);
+            const nextEnc = { ...nextPirate, type: "pirate", wave: currentWave + 1, maxWaves };
+            finalGame.log = [{ type: "bad", text: "Another pirate closes in! Wave " + (currentWave + 1) + "/" + maxWaves }, ...finalGame.log];
+            onUpdate(finalGame);
+            setTimeout(() => {
+              setPhase("choice");
+              setEnemy(nextEnc);
+              setCombatLog([{ type: "bad", text: "⚠ Wave " + (currentWave + 1) + "/" + maxWaves + " — another attacker!" }]);
+              // Patch encounter for next wave via onEncounter callback
+              onDone(nextEnc);
+            }, 1200);
+            return;
+          }
+        }
+      } else if (result === "pirate_fled") {
+        // Pirate escaped — half bounty for driving them off
         const shipIdx = SHIPS.findIndex(s => s.id === encounter?.ship?.id) ?? 0;
-        const bounty = Math.round((300 + shipIdx * 200 + rnd(0, 300)) / 50) * 50;
+        const bounty = Math.round((150 + shipIdx * 100 + rnd(0, 150)) / 50) * 50;
         finalGame.credits = finalGame.credits + bounty;
-        finalGame.killed = (finalGame.killed || 0) + 1;
-        finalGame = onPirateKilled(finalGame);
-        finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
+        finalGame.log = [{ type: "warn", text: "Pirate escaped! Partial bounty: " + bounty + " cr" }, ...finalGame.log];
       } else if (result === "dead") {
         finalGame.dead = true;
       }
       onUpdate(finalGame);
       if (result !== "dead") setTimeout(onDone, 800);
     } else {
-      onUpdate({ ...game, hull: newPlayer.hull, shields: newPlayer.shields });
+      onUpdate({ ...currentGame, hull: newPlayer.hull, shields: newPlayer.shields });
     }
-  }, [enemy, game, phase, onUpdate, onDone]);
+  }, [enemy, phase, onUpdate, onDone, encounter]);
 
   if (encounter.type === "pirate") {
+    // Coward check: weak pirate may surrender on sight
+    const cowardChance = encounter.cowardChance || 0;
+    if (cowardChance > 0 && phase === "choice" && Math.random() < cowardChance) {
+      // Auto-flee on first render — handle via a one-time effect
+    }
+
     const threatLabel = encounter.shields > 0
       ? (encounter.shields >= 200 ? "ELITE" : "ARMED")
       : encounter.weapon?.id === "military" ? "DANGEROUS"
@@ -2828,17 +3218,35 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
       : threatLabel === "DANGEROUS" ? "#ff6b35"
       : threatLabel === "ARMED" || threatLabel === "MODERATE" ? "#ffd700"
       : "#8888bb";
+
+    const isBountyHunter = encounter.sub === "bounty_hunter";
+
     return (
       <div className="encounter-box">
-        <div className="encounter-title">⚠ PIRATE ENCOUNTER
+        <div className="encounter-title">
+          {isBountyHunter ? "🎯 BOUNTY HUNTER" : "⚠ PIRATE ENCOUNTER"}
           <span style={{ fontSize: 13, color: threatColor, marginLeft: 10 }}>[{threatLabel}]</span>
+          {encounter.angry && <span style={{ fontSize: 13, color: "#ff4444", marginLeft: 8 }}>ANGRY</span>}
+          {encounter.maxWaves > 1 && (
+            <span style={{ fontSize: 13, color: "#ff6b35", marginLeft: 10 }}>
+              WAVE {encounter.wave}/{encounter.maxWaves}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 10 }}>
           <div style={{ textAlign: "center" }}>
             <ShipSprite shipId={game.ship.id} size={52}/>
             <div style={{ fontSize: 16, color: "#00ff88" }}>YOU</div>
             <div style={{ fontSize: 15, color: "#00ff88" }}>Hull: {game.hull}</div>
-            {game.shields.length > 0 && <div style={{ fontSize: 13, color: "#4fc3f7" }}>Shield: {game.shields[0].current}</div>}
+            {game.shields.length > 0 && (
+              <div style={{ fontSize: 13 }}>
+                {game.shields.map((sh, i) => (
+                  <div key={i} style={{ color: sh.id === "reflective" || sh.id === "lightning" ? "#ffd700" : "#4fc3f7" }}>
+                    {sh.id === "lightning" ? "⚡" : sh.id === "reflective" ? "◆" : "⬡"} {sh.current}/{sh.max}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div style={{ fontSize: 16, color: "#ff6b35", alignSelf: "center" }}>VS</div>
           <div style={{ textAlign: "center" }}>
@@ -2864,6 +3272,59 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   }
 
   if (encounter.type === "police") {
+    // Hostile police / bounty hunter — full combat
+    if (encounter.sub === "hostile" || encounter.sub === "bounty_hunter") {
+      return (
+        <div className="encounter-box" style={{ borderColor: "#ff4444" }}>
+          <div className="encounter-title" style={{ color: "#ff4444" }}>
+            {encounter.sub === "bounty_hunter" ? "🎯 BOUNTY HUNTER" : "🔴 POLICE INTERCEPTOR"}
+            <span style={{ fontSize: 13, color: "#ff6b35", marginLeft: 8 }}>HOSTILE</span>
+          </div>
+          <div className="encounter-desc">
+            {encounter.sub === "bounty_hunter"
+              ? "\"Commander " + game.commander + "! You have a price on your head. Stand down or be destroyed!\""
+              : "\"All ships halt! By order of the law — you are under arrest!\""}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-around", marginBottom: 10 }}>
+            <div style={{ textAlign: "center" }}>
+              <ShipSprite shipId={game.ship.id} size={52}/>
+              <div style={{ fontSize: 14, color: "#00ff88" }}>Hull: {game.hull}</div>
+            </div>
+            <div style={{ fontSize: 16, color: "#ff4444", alignSelf: "center" }}>VS</div>
+            <div style={{ textAlign: "center" }}>
+              <ShipSprite shipId={encounter.ship?.id || "hornet"} size={52} flip={true}/>
+              <div style={{ fontSize: 14, color: "#ff4444" }}>{encounter.ship?.name || "Police"}</div>
+              <div style={{ fontSize: 13, color: "#ff4444" }}>Hull: {(enemy?.hull ?? encounter.hull)}</div>
+            </div>
+          </div>
+          <div style={{ maxHeight: 60, overflow: "hidden", marginBottom: 8 }}>
+            {combatLog.map((e, i) => <div key={i} className={"log-entry " + e.type}>{e.text}</div>)}
+          </div>
+          {phase !== "ended" && (
+            <div className="flex-gap">
+              <button className="btn btn-red" onClick={() => fightRound("fight")}>⚔ FIGHT</button>
+              <button className="btn btn-blue" onClick={flee}>↗ FLEE</button>
+              <button className="btn btn-gray" onClick={() => {
+                // Surrender to police: arrested, pay fine, lose days
+                const rep = game.reputation || 0;
+                const fine = Math.max(500, Math.abs(rep) * 500);
+                const jailDays = Math.max(2, Math.abs(rep));
+                const hasEscapePod = game.gadgets.some(g => g.id === "escape_pod");
+                onUpdate({ ...game,
+                  credits: Math.max(0, game.credits - fine),
+                  days: game.days + jailDays,
+                  reputation: Math.min(0, rep + 3),
+                  policeRecord: (game.policeRecord || 0) + 1,
+                  log: [{ type: "bad", text: "Arrested! Fine: " + fine + " cr · " + jailDays + " days in custody · Rep +3" }, ...game.log],
+                });
+                onDone();
+              }}>🏳 SURRENDER</button>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     return (
       <div className="encounter-box" style={{ borderColor: "#4fc3f7" }}>
         <div className="encounter-title" style={{ color: "#4fc3f7" }}>🔵 POLICE INSPECTION</div>
@@ -2883,7 +3344,7 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
             <button className="btn btn-gray" onClick={flee}>FLEE</button>
           </div>
         ) : (
-          <button className="btn btn-blue" onClick={onDone}>ACKNOWLEDGED</button>
+          <button className="btn btn-blue" onClick={() => onDone()}>ACKNOWLEDGED</button>
         )}
       </div>
     );
@@ -2978,7 +3439,29 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           </div>
         )}
 
-        <button className="btn btn-gray" onClick={onDone}>DEPART</button>
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button className="btn btn-gray" onClick={() => onDone()}>DEPART</button>
+          {(game.reputation || 0) <= -3 && (
+            <button className="btn btn-red" onClick={() => {
+              // Attack the merchant — steal cargo, lose reputation
+              const merchantShip = encounter.merchantShip || SHIPS[2];
+              const stolen = encounter.sellGoods?.slice(0, rnd(1, 3)).map(g => ({
+                id: g.id, qty: rnd(1, 3), buyPrice: 0
+              })) || [];
+              const newCargo = [...game.cargo, ...stolen].filter(c => c.qty > 0);
+              const repLoss = -2;
+              onUpdate({ ...game,
+                cargo: newCargo,
+                reputation: Math.max(-10, (game.reputation || 0) + repLoss),
+                policeRecord: (game.policeRecord || 0) + 1,
+                log: [{ type: "bad", text: "Attacked merchant! Seized cargo. Reputation −2." }, ...game.log],
+              });
+              onDone();
+            }}>
+              ⚔ ATTACK (rep −2)
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -3194,7 +3677,14 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
     setEncounter(enc);
   };
 
-  const handleEncounterDone = () => setEncounter(null);
+  const handleEncounterDone = (nextEncounter) => {
+    // nextEncounter must be a real encounter object, not a browser Event
+    if (nextEncounter && nextEncounter.type && typeof nextEncounter.type === "string" && nextEncounter.ship) {
+      setEncounter(nextEncounter);
+    } else {
+      setEncounter(null);
+    }
+  };
 
   const handleSave = () => {
     try { localStorage.setItem("spacetrader_save", JSON.stringify(game)); } catch {}
@@ -3247,18 +3737,19 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
         <EncounterScreen game={game} encounter={encounter}
           onUpdate={onUpdate} onDone={handleEncounterDone} />
       )}
-      <div className="nav-tabs">
-        {[["trade","TRADE"],["travel","WARP"],["ship","SHIP"],["bank","BANK"],["jobs","JOBS"],["quests","QUESTS"],["log","LOG"]].map(([id, label]) => (
-          <button key={id} className={"tab" + (tab === id ? " active" : "")} onClick={() => { setTab(id); if (id !== "travel") setQuestTarget(null); }}>{label}</button>
-        ))}
-      </div>
-      {tab === "trade" && <TradeScreen game={game} onUpdate={onUpdate} />}
-      {tab === "travel" && <TravelScreen game={game} onUpdate={onUpdate} onEncounter={handleEncounter} onQuestPopup={setQuestPopup} initialSelected={questTarget} />}
-      {tab === "ship" && <ShipScreen game={game} onUpdate={onUpdate} />}
-      {tab === "bank" && <BankScreen game={game} onUpdate={onUpdate} />}
-      {tab === "jobs" && <ContractsScreen game={game} onUpdate={onUpdate} onPlotCourse={handlePlotCourse} />}
-      {tab === "quests" && <QuestsScreen game={game} onPlotCourse={handlePlotCourse} />}
-      {tab === "log" && <LogScreen game={game} />}
+      {!encounter && (<>
+        <div className="nav-tabs">
+          {[["trade","TRADE"],["travel","WARP"],["ship","SHIP"],["bank","BANK"],["jobs","JOBS"],["log","LOG"]].map(([id, label]) => (
+            <button key={id} className={"tab" + (tab === id ? " active" : "")} onClick={() => { setTab(id); if (id !== "travel") setQuestTarget(null); }}>{label}</button>
+          ))}
+        </div>
+        {tab === "trade" && <TradeScreen game={game} onUpdate={onUpdate} />}
+        {tab === "travel" && <TravelScreen game={game} onUpdate={onUpdate} onEncounter={handleEncounter} onQuestPopup={setQuestPopup} initialSelected={questTarget} />}
+        {tab === "ship" && <ShipScreen game={game} onUpdate={onUpdate} />}
+        {tab === "bank" && <BankScreen game={game} onUpdate={onUpdate} />}
+        {tab === "jobs" && <ContractsScreen game={game} onUpdate={onUpdate} onPlotCourse={handlePlotCourse} />}
+        {tab === "log" && <LogScreen game={game} />}
+      </>)}
     </div>
   );
 }
