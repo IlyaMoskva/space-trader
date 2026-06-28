@@ -89,6 +89,37 @@ function TradeScreen({ game, onUpdate }) {
       c.id === id ? { ...c, qty: c.qty - 1 } : c
     ).filter(c => c.qty > 0);
 
+    // Illegal goods: always -1 rep; random police bust based on police level and rep
+    if (com?.illegal) {
+      const rep = game.reputation || 0;
+      const bustChance = Math.min(0.70, sys.police * 0.10 + Math.max(0, -rep) * 0.05);
+      if (Math.random() < bustChance) {
+        // Busted — no sale proceeds, goods confiscated, fine, rep -2
+        const fine = Math.round(sellPrice * 1.5);
+        const newGalaxy = game.galaxy.map(s => s.id === sys.id ? { ...s, market: newMarket } : s);
+        onUpdate({ ...game,
+          credits: Math.max(0, game.credits - fine),
+          cargo: newCargo,
+          galaxy: newGalaxy,
+          policeRecord: (game.policeRecord || 0) + 1,
+          reputation: Math.max(-10, rep - 2),
+          log: [{ type: "bad", text: "Busted selling " + com.name + "! Fine: " + fine + " cr. Rep −2." }, ...game.log],
+        });
+        return;
+      }
+      // Not caught — sale goes through, rep -1
+      const newGalaxy = game.galaxy.map(s => s.id === sys.id ? { ...s, market: newMarket } : s);
+      onUpdate({ ...game,
+        credits: game.credits + sellPrice,
+        cargo: newCargo,
+        galaxy: newGalaxy,
+        policeRecord: (game.policeRecord || 0) + 1,
+        reputation: Math.max(-10, rep - 1),
+        log: [{ type: "warn", text: "Sold 1x " + com.name + " @ " + sellPrice + " cr" + profitStr + " [illegal, rep −1]" }, ...game.log],
+      });
+      return;
+    }
+
     updateMarket(newMarket, newCargo, sellPrice,
       { type: profit >= 0 ? "good" : "warn",
         text: "Sold 1x " + com.name + " @ " + sellPrice + " cr" + profitStr + marketNote });

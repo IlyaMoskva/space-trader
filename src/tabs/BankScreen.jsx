@@ -88,18 +88,25 @@ function BankScreen({ game, onUpdate }) {
           </div>
         );
       })()}
-      {game.credits >= 500000 && (
-        <div style={{ marginTop: 14, border: "1px solid #ffd700", borderRadius: 4, padding: 10 }}>
-          <div style={{ fontSize: 16, color: "#ffd700", marginBottom: 8 }}>🌙 MOON FOR SALE — UTOPIA SYSTEM</div>
-          <div style={{ fontSize: 15, color: "#aaa8cc", marginBottom: 8 }}>Retire in luxury! Cost: 500,000 cr</div>
-          <button className="btn btn-gold" onClick={() => {
-            if (game.credits < 500000) return;
-            onUpdate({ ...game, credits: game.credits - 500000, retired: true });
-          }}>
-            BUY MOON & RETIRE
-          </button>
-        </div>
-      )}
+      {(() => {
+        const netWorth = game.credits - (game.debt || 0);
+        if (netWorth < 500000) return null;
+        return (
+          <div style={{ marginTop: 14, border: "1px solid #ffd700", borderRadius: 4, padding: 10 }}>
+            <div style={{ fontSize: 16, color: "#ffd700", marginBottom: 8 }}>🌙 MOON FOR SALE — UTOPIA SYSTEM</div>
+            <div style={{ fontSize: 15, color: "#aaa8cc", marginBottom: 8 }}>
+              Retire in luxury! Cost: 500,000 cr
+              {game.debt > 0 && <span style={{ color: "#00ff88", marginLeft: 6 }}>Net worth: {netWorth.toLocaleString()} cr ✓</span>}
+            </div>
+            <button className="btn btn-gold" onClick={() => {
+              if (game.credits - (game.debt || 0) < 500000) return;
+              onUpdate({ ...game, credits: game.credits - 500000, retired: true });
+            }}>
+              BUY MOON & RETIRE
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

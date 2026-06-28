@@ -15,7 +15,109 @@ All notable changes to Space Trader PWA.
   - `screens/` — TitleScreen, GameScreen
   - `tabs/` — TradeScreen, TravelScreen, ShipScreen, BankScreen, ContractsScreen, LogScreen, EncounterScreen
 - **Static import checker** (`test-imports.cjs`) — finds missing imports before deploy
-- `npm test` runs both game logic tests (33) and import checker
+- `npm test` runs both game logic tests (34) and import checker
+- App.jsx cleaned of stale comments — imports + CSS + App() only
+- PWA `skipWaiting + clientsClaim` — new service worker activates immediately on deploy
+
+### Galaxy
+- **Poisson Disk Sampling + bridge repair** — even spread, no clustering around Lave
+- Min separation 12 pc, MIN_JUMP=11 pc, MAX_JUMP=17 pc (all ships)
+- **Flea jump 5 pc → 17 pc** — diplomatic courier with hyperdrive
+
+### Combat
+- **Pirate scaling by player power** — `playerPower = fighter/10×6 + weaponTier×0.5 + shipTier/9×2`; threat capped at `playerPower + 2`
+- Fighter skill weighted most — weapon/ship are tools, skill is experience
+- **Skill gain on win** — base 8% + 12%/level enemy exceeds player; **diminishing returns** `× (1 - skill/15)`; Fighter 9 = 40% of base chance
+- **Pirate flee** — hull < 25%, escape chance = 15% + 5%/level above player Pilot
+- **Wave attacks** — pirates=1: rarely 2; pirates=2: 1–2; pirates=3: 1–3
+- **SURRENDER removed from pirate combat** — only available vs police
+
+### Reputation (−10 to +10)
+- Gauge in StatusBar: LEGEND / RESPECTED / NEUTRAL / SUSPECT / WANTED / PIRATE ⚠ HUNTED
+- **+7..+10**: pirates come ANGRY — better equipped
+- **−7..−10**: weak pirates may flee on sight
+- **−6..−4**: police attacks on sight
+- **−5 and below**: bounty hunters spawn
+- **ATTACK button** on trader at rep ≤ −3
+- **Surrender to police** → fine + jail days + rep +3
+- **PAY FINE** in Bank → |rep| × 1000 cr → rep +3
+
+### Contracts (JOBS tab)
+- **Extermination deadline** = travelDays + killCount×2 + 2 (min 8)
+- **Deadline checked in `updateGame()`** — single source of truth; fails immediately when days advance (patrol, jump, any action)
+- **PATROL** guaranteed encounter; system with active contract always has pirates
+- Contract history shows last 5 newest first
+
+### Mercenaries (JOBS tab)
+- **Planet-based availability** — 30% base + 6%/size; civilian bias on hi-tech, fighter bias on lawless
+- Skill comparison: green ▲ where merc improves effective skill
+- **Restored after refactor** (was missing)
+
+### Economy
+- **Illegal goods on planet** — always rep −1; random police bust (police×10% + |rep|×5%, max 70%) → confiscation + fine×1.5 + rep −2 total
+- **14 planet events** with Cold Winter, Flood, Festival, Industrial Accident
+- **Duplicate weapons/shields** now allowed — can install 3× Military Laser
+
+### Bank
+- **Separate sliders** for Borrow (0..maxBorrow) and Repay (0..credits)
+- **REPAY ALL** button — one click to pay maximum possible
+- **Moon purchase** requires net worth ≥ 500,000 cr (credits − debt), not just credits
+
+### Quests
+- **Dragonfly boss fight fixed** — arrival now converts `type:"boss"` to `type:"pirate"` correctly; was silently dropped
+- All 4 quests start hidden; revealed through news (60% per arrival)
+- Wild quest shows equipment requirement status
+
+### News Feed (LOG tab)
+- **Restored after refactor** — nearby systems within jump range with price effects and days remaining
+- `LOCAL:` prefix for current system; click nearby event → WARP tab
+- **Informative format**: `Zaonce: Plague reported. ↑ Medicine (5d left) → WARP`
+
+### Ships & Equipment
+- **Repair/recharge always visible** — disabled with hint when tech < 2, not hidden
+- Ship purchase: equipment transfers, excess auto-sold cheapest first
+- Lightning Shield [UNIQUE] marked in list, confirmation before selling
+
+### Special Encounters
+- **Famous Captain** — brief note if you lack item (no disabled button)
+- **Alien Machine / Tonic / Sealed Cargo** — option hidden if can't afford
+- Mercenary offer in space → redirects to Jobs board
+
+### UI/UX
+- Travel button disappears when arrived at selected system (`effectiveSelected`)
+- Population shown in destination info panel (test added to prevent regression)
+- Debug "Combat contracts" block removed from WARP tab
+- Stale comments removed from App.jsx
+
+---
+
+## [0.3.0] — Skills, Mercenaries, Quests
+
+### Added
+- Mercenary system: 8 named crew, daily wages per jump, effective skill display
+- Elite Captains: trade gear for +1 skill
+- Alien Learning Machine, Portable Singularity, Alien Tonic
+- JOBS tab, crew quarters per ship
+
+---
+
+## [0.2.0] — Economy & Galaxy
+
+### Added
+- Dynamic market pricing: tech profile × gov modifier × stock curve
+- 10 events affecting prices
+- P/L column, off-market barter at 65%
+- 50 systems, Lave at centre, BFS connectivity
+
+---
+
+## [0.1.0] — Initial prototype
+
+### Added
+- React PWA scaffold (Vite + vite-plugin-pwa)
+- Procedural galaxy, trading, combat, police, bank, escape pod
+- Auto-save to localStorage
+
 
 ### Galaxy
 - **Poisson Disk Sampling + bridge repair** — even spread, no clustering around Lave
