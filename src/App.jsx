@@ -282,145 +282,90 @@ function jumpRangeCoords(jumpRange) {
 }
 
 function generateGalaxy() {
+  const GSIZE  = 2000;
+  const GNAT_R = 140;   // max jump in coords
+  const FLEA_R = 50;    // Flea jump
+  const SEP    = 55;    // min separation
+  const TARGET = 50;
+
+  const names = ["Lave",
+    ...SYSTEM_NAMES.filter(n => n !== "Lave").sort(() => Math.random() - 0.5)];
+  let ni = 0;
+
   const systems = [];
-  const usedNames = new Set();
+  const addSys = (x, y, ov = {}) => {
+    const s = { id: systems.length, name: names[ni++] || ("S"+ ni),
+      x, y, tech: ov.tech ?? rnd(0,8), gov: ov.gov ?? rnd(0,7),
+      size: ov.size ?? rnd(0,5), special: rnd(0,10),
+      pirates: ov.pirates ?? rnd(0,3), police: ov.police ?? rnd(0,3),
+      visited: false, market: null };
+    systems.push(s);
+    return s;
+  };
 
-  // 2000×2000 coord space, PARSEC_SCALE=10
-  // Flea jump=5pc=50 coords, Gnat=14pc=140, best ship=17pc=170
-  // Min separation = 5pc = 50 coords (Flea must be able to hop)
-  const GSIZE    = 2000;
-  const MIN_DIST = 50;   // 5 parsecs — Flea minimum jump
-  const GNAT_R   = 140;  // Gnat range
-  const MAX_R    = 170;  // best ship range
-  const FLEA_R   = 50;   // Flea range
+  const tooClose = (x, y) =>
+    systems.some(s => Math.hypot(s.x-x, s.y-y) < SEP);
 
-  const shuffledNames = ["Lave", ...SYSTEM_NAMES.filter(n => n !== "Lave").sort(() => Math.random() - 0.5)];
-
-  // 6 cluster centres spread across the full space
-  const centres = [
-    { x: 1000, y: 1000 },
-    { x: rnd(200,  600),  y: rnd(200,  600)  },
-    { x: rnd(1400, 1800), y: rnd(200,  600)  },
-    { x: rnd(200,  600),  y: rnd(1400, 1800) },
-    { x: rnd(1400, 1800), y: rnd(1400, 1800) },
-    { x: rnd(600,  1400), y: rnd(200,  600)  },
-  ];
-
-  // Place a system near (cx,cy) between minR and maxR, respecting MIN_DIST
-  const place = (cx, cy, minR, maxR) => {
-    let x, y, attempts = 0;
-    do {
-      const angle = Math.random() * Math.PI * 2;
+  const tryAdd = (cx, cy, minR, maxR) => {
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
       const r = minR + Math.random() * (maxR - minR);
-      x = Math.round(cx + Math.cos(angle) * r);
-      y = Math.round(cy + Math.sin(angle) * r);
-      x = Math.max(80, Math.min(GSIZE - 80, x));
-      y = Math.max(80, Math.min(GSIZE - 80, y));
-      attempts++;
-    } while (attempts < 100 && systems.some(s => dist(s, {x, y}) < MIN_DIST));
-    return { x, y };
+      const x = Math.round(Math.max(80, Math.min(GSIZE-80, cx + Math.cos(a)*r)));
+      const y = Math.round(Math.max(80, Math.min(GSIZE-80, cy + Math.sin(a)*r)));
+      if (!tooClose(x, y)) return addSys(x, y);
+    }
+    return null;
   };
 
-  for (let i = 0; i < 50; i++) {
-    const name = shuffledNames[i] || ("Sys-" + i);
-    usedNames.add(name);
-    let pos;
+  // ── BFS growth ────────────────────────────────────────────────────────────
+  // Invariant: every system added is within GNAT_R of its parent → tree is
+  // always fully connected. We then randomly reconnect during BFS to allow
+  // multiple paths (not just a chain).
 
-    if (i === 0) {
-      // Lave — centre
-      pos = { x: 1000, y: 1000 };
-    } else if (i <= 2) {
-      // 2 systems within Flea range (40-48 coords = 4-4.8 pc)
-      pos = place(1000, 1000, 40, 48);
-    } else if (i <= 7) {
-      // 5 more systems within Gnat range (55-135 coords)
-      pos = place(1000, 1000, 55, 135);
-    } else {
-      // Rest: scatter from cluster centres across the full galaxy
-      const c = pick(centres);
-      pos = place(c.x, c.y, 60, 700);
-    }
+  addSys(1000, 1000, { tech:5, gov:6, size:3, pirates:1, police:2 });
 
-    systems.push({
-      id: i, name, x: pos.x, y: pos.y,
-      tech:    i === 0 ? 5 : rnd(0, 8),
-      gov:     i === 0 ? 6 : rnd(0, 7),
-      size:    i === 0 ? 3 : rnd(0, 5),
-      special: rnd(0, 10),
-      pirates: i === 0 ? 1 : rnd(0, 3),
-      police:  i === 0 ? 2 : rnd(0, 3),
-      visited: false,
-      market:  null,
-    });
-  }
-
-  // ── Connectivity guarantee ────────────────────────────────────────────────
-  // After initial placement, some systems may be unreachable from Lave via
-  // GNAT_R jumps. We fix this by reseeding each unreachable system within
-  // GNAT_R of a randomly chosen already-reachable system, building outward
-  // like a spanning tree. This is O(n) and guarantees full connectivity.
-
-  const bfsReachable = (arr, startId, r) => {
-    const seen = new Set([startId]);
-    const q = [startId];
-    while (q.length) {
-      const cur = arr.find(s => s.id === q.shift());
-      if (!cur) continue;
-      arr.filter(s => !seen.has(s.id) && dist(s, cur) <= r)
-        .forEach(s => { seen.add(s.id); q.push(s.id); });
-    }
-    return seen;
-  };
-
-  // Place each unreachable system near a reachable one, updating connectivity
-  // after each move. Guaranteed to terminate: each move connects at least one
-  // new system, so at most 50 iterations needed.
-  for (let safety = 0; safety < 1000; safety++) {
-    const reachable = bfsReachable(systems, 0, GNAT_R);
-    if (reachable.size === systems.length) break;
-
-    const unreachable = systems.filter(s => !reachable.has(s.id));
-    const reachableList = systems.filter(s => reachable.has(s.id));
-    const target = unreachable[0];
-    const anchor = reachableList[Math.floor(Math.random() * reachableList.length)];
-
+  // 2 guaranteed Flea-range neighbours of Lave (force placement)
+  for (let i = 0; i < 2; i++) {
     let placed = false;
-    for (let attempt = 0; attempt < 40; attempt++) {
-      const angle = Math.random() * Math.PI * 2;
-      const r = 60 + Math.random() * 60; // 60-120 coords, well within GNAT_R=140
-      const nx = Math.round(Math.max(80, Math.min(GSIZE - 80, anchor.x + Math.cos(angle) * r)));
-      const ny = Math.round(Math.max(80, Math.min(GSIZE - 80, anchor.y + Math.sin(angle) * r)));
-      if (!systems.some(s => s.id !== target.id && dist(s, {x:nx, y:ny}) < MIN_DIST)) {
-        target.x = nx; target.y = ny;
-        placed = true;
-        break;
-      }
+    for (let attempt = 0; attempt < 60 && !placed; attempt++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 40 + Math.random() * 8; // 40-48 coords = 4-4.8pc
+      const x = Math.round(Math.max(80, Math.min(GSIZE-80, 1000 + Math.cos(a)*r)));
+      const y = Math.round(Math.max(80, Math.min(GSIZE-80, 1000 + Math.sin(a)*r)));
+      if (!tooClose(x, y)) { addSys(x, y); placed = true; }
     }
     if (!placed) {
-      // Force — connectivity > spacing
-      const angle = Math.random() * Math.PI * 2;
-      target.x = Math.round(Math.max(80, Math.min(GSIZE - 80, anchor.x + Math.cos(angle) * 80)));
-      target.y = Math.round(Math.max(80, Math.min(GSIZE - 80, anchor.y + Math.sin(angle) * 80)));
+      // Force: just place at FLEA_R distance even if overlapping
+      const a = Math.random() * Math.PI * 2;
+      addSys(Math.round(1000+Math.cos(a)*45), Math.round(1000+Math.sin(a)*45));
     }
   }
 
-  // ── Isolation check: no system more than MAX_R from all others ────────────
-  for (const sys of systems) {
-    if (sys.id === 0) continue;
-    const hasNearNeighbour = systems.some(s => s.id !== sys.id && dist(s, sys) <= MAX_R);
-    if (!hasNearNeighbour) {
-      const closest = systems
-        .filter(s => s.id !== sys.id)
-        .reduce((best, s) => dist(s, sys) < dist(best, sys) ? s : best);
-      const d = dist(closest, sys);
-      const ratio = (MAX_R - 15) / d;
-      sys.x = Math.max(80, Math.min(GSIZE - 80, Math.round(closest.x + (sys.x - closest.x) * ratio)));
-      sys.y = Math.max(80, Math.min(GSIZE - 80, Math.round(closest.y + (sys.y - closest.y) * ratio)));
+  // BFS queue: process each system, grow 1-3 children
+  // Jump distance: 60-125 coords (6-12.5 pc) — always within GNAT_R
+  const frontier = [...systems]; // copy so we can splice
+  let fi = 0;
+
+  while (systems.length < TARGET) {
+    if (fi >= frontier.length) {
+      // All frontier exhausted — pick random existing system and re-queue
+      frontier.push(systems[Math.floor(Math.random() * systems.length)]);
+    }
+    const parent = frontier[fi++];
+    const children = rnd(1, 3);
+    for (let c = 0; c < children && systems.length < TARGET; c++) {
+      const s = tryAdd(parent.x, parent.y, 60, 125);
+      if (s) frontier.push(s);
     }
   }
+
+  // Trim to exactly TARGET
+  while (systems.length > TARGET) systems.pop();
 
   return systems;
 }
+
+
 
 // ─── COMMODITY METADATA ──────────────────────────────────────────────────────
 // tech modifier: how tech level shifts price relative to base

@@ -76,9 +76,10 @@ for (let i = 0; i < 10; i++) {
     // Full connectivity via BFS at Gnat range (14 pc)
     const seen = new Set([0]), q = [0];
     while (q.length) {
-      const cur = g.find(s => s.id === q.shift());
+      const id = q.shift();
+      const cur = g[id];
       if (!cur) continue;
-      g.filter(s => !seen.has(s.id) && distParsecs(cur, s) <= 14)
+      g.filter(s => !seen.has(s.id) && Math.hypot(cur.x-s.x, cur.y-s.y) <= 140)
        .forEach(s => { seen.add(s.id); q.push(s.id); });
     }
     assert(seen.size === 50, `reachable=${seen.size}/50 from Lave`);
