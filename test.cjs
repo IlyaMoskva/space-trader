@@ -237,8 +237,8 @@ test("all ships have required fields including slots_c", () => {
     assert(s.price >= 0, `${s.id} price=${s.price}`);
   });
 });
-test("Flea=5pc · Gnat=14pc · Wasp=14pc", () => {
-  assert(SHIPS.find(s => s.id === "flea")?.jump === 5, "Flea jump≠5");
+test("Flea=17pc · Gnat=14pc · Wasp=14pc", () => {
+  assert(SHIPS.find(s => s.id === "flea")?.jump === 17, "Flea jump≠17");
   assert(SHIPS.find(s => s.id === "gnat")?.jump === 14, "Gnat jump≠14");
   assert(SHIPS.find(s => s.id === "wasp")?.jump === 14, "Wasp jump≠14");
 });
