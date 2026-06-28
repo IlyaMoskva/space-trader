@@ -212,6 +212,114 @@ body { background: #07071a; }
 .flex-gap { display: flex; gap: 6px; flex-wrap: wrap; }
 `;
 
+// ─── GAME DATA ───────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+// Coordinate system: galaxy is 2000×2000 coord units.
+// 1 parsec = PARSEC_SCALE coordinate units.
+// Gnat: jump=14 pc → 140 coord units radius → roughly 4-7 systems in range
+
+
+
+
+
+
+
+
+
+
+
+// ─── COMMODITY METADATA ──────────────────────────────────────────────────────
+// tech modifier: how tech level shifts price relative to base
+// positive = produced here (cheaper), negative = consumed/imported (pricier)
+// Format: [techLevel] → multiplier offset from 1.0
+
+// Government price modifiers per commodity category
+// [govIndex]: { category: multiplier }
+// categories: raw (water/furs/food/ore), industrial (machines/robots), luxury (games), weapons, drugs, medicine
+
+
+// ─── EVENTS SYSTEM ───────────────────────────────────────────────────────────
+
+
+
+
+// ─── PRICE ENGINE ─────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+// ─── CONTRACTS ───────────────────────────────────────────────────────────────
+// Dynamic per-planet jobs: delivery, extermination, assassination
+// Generated fresh on each visit, taken from the bulletin board
+
+
+
+
+
+
+
+
+// ─── QUEST COMPLETION CHECK ─────────────────────────────────────────────────
+
+
+// ─── ELITE CAPTAINS ──────────────────────────────────────────────────────────
+
+
+// ─── MERCENARIES ─────────────────────────────────────────────────────────────
+
+
+
+// Generate a pirate ship scaled to system tech level and player kills
+
+
+// ─── COMBAT ──────────────────────────────────────────────────────────────────
+
+
+// ─── INITIAL STATE ───────────────────────────────────────────────────────────
+
+
+// ─── SHIP SPRITES ────────────────────────────────────────────────────────────
+
+
+
+
+// ─── STARS CANVAS ────────────────────────────────────────────────────────────
+
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+
+
+
+// ─── SCREENS ─────────────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ─── MAIN GAME ────────────────────────────────────────────────────────────────
+
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
+
 export default function App() {
   const { game, screen, setScreen, updateGame, startGame, handleNewGame, handleTitle, lastCmdr } = useGameState();
 

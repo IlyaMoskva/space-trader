@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import SkillBar from '../components/SkillBar.jsx';
 
 function TitleScreen({ onStart, hasSave, onResume, prevName }) {
   const [name, setName] = useState(prevName || "");
