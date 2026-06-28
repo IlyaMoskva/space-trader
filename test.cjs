@@ -7,15 +7,35 @@ const vm = require("vm");
 // ── Load game source ──────────────────────────────────────────────────────────
 const src = fs.readFileSync(path.join(__dirname, "src/App.jsx"), "utf8");
 const lines = src.split("\n");
-const starsIdx = Math.min(
-  lines.findIndex(l => l.trim().startsWith("function StarsCanvas")),
-  lines.findIndex(l => l.trim().startsWith("const SHIP_SVGS")),
-  lines.findIndex(l => l.trim().startsWith("const SHIP_COLORS")),
-);
+// App.jsx now only contains App() — all logic is in engine/constants
+// starsIdx not needed; pureLines will be empty (just CSS/FONT consts)
+const starsIdx = lines.findIndex(l => l.trim().startsWith("export default function App"));
 
 const pureLines = lines.slice(0, starsIdx)
   .filter(l => !l.trim().startsWith("import "))
   .filter(l => !l.trim().startsWith("export "));
+
+// Load constants from separate files (strip import/export keywords for vm)
+const loadConstant = (file) =>
+  fs.readFileSync(path.join(__dirname, "src/constants", file), "utf8")
+    .split("\n")
+    .filter(l => !l.trim().startsWith("import ") && !l.trim().startsWith("export "))
+    .join("\n");
+
+const constantsSrc = [
+  "ships.js", "commodities.js", "world.js", "events.js", "mercenaries.js"
+].map(loadConstant).join("\n");
+
+// Load engine files (strip import/export for vm)
+const loadEngine = (file) =>
+  fs.readFileSync(path.join(__dirname, "src/engine", file), "utf8")
+    .split("\n")
+    .filter(l => !l.trim().startsWith("import ") && !l.trim().startsWith("export "))
+    .join("\n");
+
+const engineSrc = [
+  "utils.js", "galaxy.js", "market.js", "contracts.js", "quests.js", "combat.js", "newGame.js"
+].map(loadEngine).join("\n");
 
 const stub = `
 const useState = (v) => [typeof v === "function" ? v() : v, () => {}];
@@ -44,7 +64,7 @@ Object.assign(globalThis, {
 
 const ctx = Object.assign(Object.create(null), global);
 vm.createContext(ctx);
-vm.runInContext(stub + pureLines.join("\n") + "\n" + exporter, ctx);
+vm.runInContext(stub + constantsSrc + "\n" + engineSrc + "\n" + pureLines.join("\n") + "\n" + exporter, ctx);
 
 const {
   generateGalaxy, createNewGame, generateContracts,
