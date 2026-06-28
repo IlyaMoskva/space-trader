@@ -2106,12 +2106,13 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     }
   }, [initialSelected]);
   const currentSys = game.galaxy[game.currentSystem];
-  const selectedSys = selected !== null ? game.galaxy[selected] : null;
+  // Clear selection if we just arrived at the selected system
+  const effectiveSelected = selected === game.currentSystem ? null : selected;
+  const selectedSys = effectiveSelected !== null ? game.galaxy[effectiveSelected] : null;
   const jumpRange = game.ship.jump + (game.gadgets.some(g => g.id === "fuel_compressor") ? 3 : 0);
   const fuel = selectedSys ? fuelCost(currentSys, selectedSys) : 0;
   const inRange = selectedSys ? canReach(currentSys, selectedSys, jumpRange) : false;
   const canTravel = selectedSys && inRange && game.credits >= fuel;
-
   const travel = () => {
     if (!canTravel) return;
     let newGalaxy = game.galaxy.map(s => {
@@ -2202,17 +2203,58 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     const logEntry = { type: "info", text: "Traveled to " + selectedSys.name + ". Fuel: " + fuel + " cr" };
     newGame.log = [logEntry, ...newGame.log].slice(0, 50);
 
-    // Build news from system events + galaxy-wide quest news
+    // Build news feed: local system info + events in reachable systems
     const arrivedSys = newGame.galaxy[selected];
+    const jumpRange = (newGame.ship.jump || 14) * 10; // coords
+
+    // Header: current system
     const sysEvents = arrivedSys.market?.events || [];
-    const eventNews = sysEvents.map(e => ({ text: e.text, quest: false, event: true }));
-    const questNews = newGame.quests
-      .filter(q => q.status === "available")
-      .map(q => ({ text: q.desc, quest: true }));
+    const localEventNews = sysEvents
+      .filter(e => (e.daysLeft ?? 0) > 0)
+      .map(e => {
+        const effects = e.effects || {};
+        const ups   = Object.keys(effects).filter(k => effects[k] > 1.15).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        const downs = Object.keys(effects).filter(k => effects[k] < 0.85).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        let fx = "";
+        if (ups.length)   fx += " ↑ " + ups.join(", ");
+        if (downs.length) fx += " ↓ " + downs.join(", ");
+        return { text: "LOCAL: " + e.text + fx + " (" + e.daysLeft + "d)", event: true };
+      });
     const staticNews = [
       { text: arrivedSys.name + " — " + TECH_LEVELS[arrivedSys.tech] + " · " + GOV_TYPES[arrivedSys.gov] + " · Pop " + SIZES[arrivedSys.size] }
     ];
-    newGame.news = [...eventNews, ...staticNews, ...questNews].slice(0, 8);
+
+    // Events in neighbouring systems within jump range
+    const nearbyEventNews = [];
+    for (const sys of newGame.galaxy) {
+      if (sys.id === selected) continue;
+      const d = Math.hypot(sys.x - arrivedSys.x, sys.y - arrivedSys.y);
+      if (d > jumpRange) continue;
+      const events = sys.market?.events || [];
+      for (const ev of events) {
+        const daysLeft = ev.daysLeft ?? 0;
+        if (daysLeft <= 0) continue;
+        // Describe price effects
+        const effects = ev.effects || {};
+        const ups   = Object.keys(effects).filter(k => effects[k] > 1.15).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        const downs = Object.keys(effects).filter(k => effects[k] < 0.85).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        let effectStr = "";
+        if (ups.length)   effectStr += " Prices up: " + ups.join(", ") + ".";
+        if (downs.length) effectStr += " Prices down: " + downs.join(", ") + ".";
+        nearbyEventNews.push({
+          text: sys.name + ": " + ev.text + effectStr + " (" + daysLeft + "d left)",
+          event: true,
+          system: sys.id,
+        });
+      }
+    }
+
+    // Quest hints
+    const questNews = newGame.quests
+      .filter(q => q.status === "available")
+      .map(q => ({ text: q.desc, quest: true }));
+
+    newGame.news = [...staticNews, ...localEventNews, ...nearbyEventNews, ...questNews].slice(0, 10);
 
     setSelected(null);
 
@@ -2274,7 +2316,7 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     <div>
       <div className="panel">
         <div className="panel-title">Galaxy Chart</div>
-        <GalaxyMap galaxy={game.galaxy} current={game.currentSystem} selected={selected}
+        <GalaxyMap galaxy={game.galaxy} current={game.currentSystem} selected={effectiveSelected}
           onSelect={setSelected} jumpRange={jumpRange} />
         {selectedSys && (
           <div style={{ marginTop: 8 }}>
@@ -3076,6 +3118,90 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
         </div>
       )}
 
+      {/* Mercenaries available for hire */}
+      {(() => {
+        const hired = game.mercenaries || [];
+        const maxSlots = game.ship.slots_c ?? 0;
+        // Deterministic per-system seed: which mercs are here today
+        const sys = game.galaxy[game.currentSystem];
+        const seed = sys.id * 7 + (game.days >> 2); // changes every ~4 days
+        const available = MERCENARY_POOL
+          .filter(m => !hired.find(x => x.id === m.id))
+          .filter((_, i) => ((seed + i * 3) % 7) < 2) // ~2/7 ≈ 29% per merc → 0-3 on board
+          .slice(0, 3);
+        if (available.length === 0 && hired.length === 0) return null;
+        const eff = effectiveSkills(game);
+        return (
+          <div className="panel">
+            <div className="panel-title">👥 Crew ({hired.length}/{maxSlots} quarters)</div>
+
+            {/* Current crew */}
+            {hired.map(m => (
+              <div key={m.id} style={{ padding:"6px 0", borderBottom:"1px solid #1a1a3a" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ fontSize:15, color:"#ffd700" }}>{m.name}</span>
+                  <span style={{ fontSize:13, color:"#555588" }}>{m.cost} cr/day</span>
+                </div>
+                <div style={{ fontSize:13, color:"#8888bb", marginTop:2 }}>
+                  P:{m.skills.pilot} F:{m.skills.fighter} T:{m.skills.trader} E:{m.skills.engineer}
+                </div>
+                <button className="btn btn-red" style={{ fontSize:13, padding:"2px 8px", marginTop:4 }}
+                  onClick={() => onUpdate({ ...game,
+                    mercenaries: hired.filter(x => x.id !== m.id),
+                    log: [{ type:"warn", text: m.name + " let go." }, ...game.log]
+                  })}>FIRE</button>
+              </div>
+            ))}
+
+            {/* Available for hire */}
+            {available.length > 0 && (
+              <>
+                <div style={{ fontSize:13, color:"#555588", margin:"8px 0 4px" }}>Available:</div>
+                {available.slice(0, 3).map(m => {
+                  const slotsLeft = maxSlots - hired.length;
+                  const canHire = slotsLeft > 0;
+                  return (
+                    <div key={m.id} style={{ padding:"6px 0", borderBottom:"1px solid #1a1a3a" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between" }}>
+                        <span style={{ fontSize:15, color:"#c0c0ff" }}>{m.name}</span>
+                        <span style={{ fontSize:13, color:"#555588" }}>{m.cost} cr/day</span>
+                      </div>
+                      {/* Skill comparison */}
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:4, margin:"4px 0", fontSize:13 }}>
+                        {["pilot","fighter","trader","engineer"].map(sk => {
+                          const mercVal = m.skills[sk];
+                          const effNow = eff[sk];
+                          const boost = mercVal > effNow;
+                          return (
+                            <div key={sk} style={{ color: boost ? "#00ff88" : "#555588" }}>
+                              {sk.slice(0,3).toUpperCase()}: {mercVal}
+                              {boost && <span style={{color:"#00ff88"}}> ▲</span>}
+                              <div style={{ fontSize:11, color:"#444466" }}>you: {effNow}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button
+                        className={"btn " + (canHire ? "btn-green" : "btn-disabled")}
+                        style={{ fontSize:13, padding:"3px 10px" }}
+                        onClick={() => {
+                          if (!canHire) return;
+                          onUpdate({ ...game,
+                            mercenaries: [...hired, m],
+                            log: [{ type:"good", text: m.name + " hired for " + m.cost + " cr/day." }, ...game.log]
+                          });
+                        }}>
+                        {canHire ? "HIRE" : "NO QUARTERS"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Special Contracts — story quests revealed through news */}
       {(() => {
         const availableQuests = (game.quests || []).filter(q => q.status === "available");
@@ -3155,14 +3281,18 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
   );
 }
 
-function LogScreen({ game }) {
+function LogScreen({ game, onPlotCourse }) {
   return (
     <div>
       <div className="panel">
         <div className="panel-title">News Feed</div>
         {(game.news || []).map((n, i) => (
-          <div key={i} className={"news-item" + (n.quest ? " quest" : n.event ? " danger" : "")}>
-            {n.event && "⚠ "}{n.quest && "► "}{n.text}
+          <div key={i}
+            className={"news-item" + (n.quest ? " quest" : n.event ? " danger" : "")}
+            onClick={n.system !== undefined ? () => { onPlotCourse && onPlotCourse(n.system); } : undefined}
+            style={n.system !== undefined ? { cursor:"pointer", borderLeft:"2px solid #ffd700", paddingLeft:6 } : {}}>
+            {n.event && !n.quest && "⚠ "}{n.quest && "► "}{n.text}
+            {n.system !== undefined && <span style={{ fontSize:12, color:"#ffd700", marginLeft:6 }}>→ WARP</span>}
           </div>
         ))}
         {(!game.news || game.news.length === 0) && <div style={{ fontSize:16, color:"#555588" }}>No news.</div>}
@@ -3587,12 +3717,17 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           : captain.wants === "beam"
           ? game.weapons.some(w => w.id === "beam")
           : game.shields.some(s => s.id === captain.wants);
+        // If player doesn't have the item, skip to a simple hail
+        if (!hasItem) return {
+          title: captain.emoji + " " + captain.name.toUpperCase(),
+          desc: captain.name + " hails you. \"Looking for a pilot with a " + captain.wantsName + ". Keep it in mind if you ever come across one.\"",
+          options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-gray" }]
+        };
         return {
           title: captain.emoji + " " + captain.name.toUpperCase(),
-          desc: captain.name + " hails you in a Wasp-class ship. \"I need a " + captain.wantsName + " urgently. I can teach you something valuable in return.\"",
+          desc: captain.name + " hails you. \"I need your " + captain.wantsName + ". In exchange — I'll teach you something you won't forget.\"",
           options: [
-            { label: hasItem ? "TRADE (" + captain.gives + ")" : "NO " + captain.wantsName.toUpperCase(), action: () => {
-              if (!hasItem) return;
+            { label: "TRADE → " + captain.gives, action: () => {
               let newWeapons = game.weapons;
               let newShields = game.shields;
               if (captain.wants === "military" || captain.wants === "beam") {
@@ -3604,7 +3739,7 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
               onUpdate({ ...game, weapons: newWeapons, shields: newShields, skills: newSkills,
                 log: [{ type: "good", text: captain.name + ": traded " + captain.wantsName + " → " + captain.gives }, ...game.log] });
               onDone();
-            }, cls: hasItem ? "btn-gold" : "btn-disabled" },
+            }, cls: "btn-gold" },
             { label: "DECLINE", action: () => onDone(), cls: "btn-gray" },
           ]
         };
@@ -3626,30 +3761,11 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           { label: "IGNORE", action: () => onDone(), cls: "btn-gray" },
         ]
       },
-      mercenary_offer: (() => {
-        const merc = pick(MERCENARY_POOL.filter(m => !(game.mercenaries || []).find(x => x.id === m.id)));
-        if (!merc) return {
-          title: "🤝 MERCENARY",
-          desc: "A spacer offers their services, but your crew is full.",
-          options: [{ label: "DECLINE", action: () => onDone(), cls: "btn-gray" }]
-        };
-        const maxMercs = game.ship.slots_c ?? 0;
-        const full = (game.mercenaries || []).length >= maxMercs;
-        return {
-          title: "🤝 MERCENARY: " + merc.name.toUpperCase(),
-          desc: merc.name + " is looking for work. Skills: Pilot " + merc.skills.pilot + " / Fighter " + merc.skills.fighter + " / Trader " + merc.skills.trader + " / Engineer " + merc.skills.engineer + ". Daily rate: " + merc.cost + " cr/day.",
-          options: [
-            { label: full ? "NO CREW QUARTERS" : "HIRE (" + merc.cost + " cr/day)", action: () => {
-              if (full) return;
-              const newMercs = [...(game.mercenaries || []), merc];
-              onUpdate({ ...game, mercenaries: newMercs,
-                log: [{ type: "good", text: merc.name + " hired for " + merc.cost + " cr/day." }, ...game.log] });
-              onDone();
-            }, cls: full ? "btn-disabled" : "btn-green" },
-            { label: "PASS", action: () => onDone(), cls: "btn-gray" },
-          ]
-        };
-      })(),
+      mercenary_offer: {
+        title: "🤝 MERCENARY",
+        desc: "A spacer approaches, looking for work. Check the Jobs board at any planet to hire crew.",
+        options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-blue" }]
+      },
       sealed_cargo: {
         title: "🎁 SEALED CARGO",
         desc: "A second-hand dealer offers you 3 sealed cargo containers for 1,000 cr. Could be anything — water to robots!",
@@ -3777,9 +3893,16 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
     setEncounter(enc);
   };
 
+  // Called from TravelScreen when jump completes with no encounter
+  const handleTravelUpdate = (newGame) => {
+    setEncounter(null); // always clear any stale encounter on jump
+    onUpdate(newGame);
+  };
+
   const handleEncounterDone = (nextEncounter) => {
-    // nextEncounter must be a real encounter object, not a browser Event
-    if (nextEncounter && nextEncounter.type && typeof nextEncounter.type === "string" && nextEncounter.ship) {
+    // nextEncounter must be a real encounter object, not a browser Event or timestamp
+    if (nextEncounter && typeof nextEncounter === "object"
+        && typeof nextEncounter.type === "string" && nextEncounter.ship) {
       setEncounter(nextEncounter);
     } else {
       setEncounter(null);
@@ -3844,11 +3967,11 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
           ))}
         </div>
         {tab === "trade" && <TradeScreen game={game} onUpdate={onUpdate} />}
-        {tab === "travel" && <TravelScreen game={game} onUpdate={onUpdate} onEncounter={handleEncounter} onQuestPopup={setQuestPopup} initialSelected={questTarget} />}
+        {tab === "travel" && <TravelScreen game={game} onUpdate={handleTravelUpdate} onEncounter={handleEncounter} onQuestPopup={setQuestPopup} initialSelected={questTarget} />}
         {tab === "ship" && <ShipScreen game={game} onUpdate={onUpdate} />}
         {tab === "bank" && <BankScreen game={game} onUpdate={onUpdate} />}
         {tab === "jobs" && <ContractsScreen game={game} onUpdate={onUpdate} onPlotCourse={handlePlotCourse} />}
-        {tab === "log" && <LogScreen game={game} />}
+        {tab === "log" && <LogScreen game={game} onPlotCourse={handlePlotCourse} />}
       </>)}
     </div>
   );
