@@ -17,8 +17,23 @@ export function useGameState() {
   }, []);
 
   const updateGame = useCallback((newGame) => {
-    setGame(newGame);
-    try { localStorage.setItem(SAVE_KEY, JSON.stringify(newGame)); } catch {}
+    // Check contract deadlines on every state update that advances days
+    let g = { ...newGame };
+    if (g.activeContracts && g.days !== undefined) {
+      let changed = false;
+      g.activeContracts = g.activeContracts.map(c => {
+        if (c.status === "active" && c.deadline <= g.days) {
+          g.credits = (g.credits || 0) - (c.penalty || 0);
+          g.reputation = (g.reputation || 0) - 1;
+          g.log = [{ type: "bad", text: "Contract FAILED: " + c.title + (c.penalty ? " — penalty " + c.penalty + " cr" : "") }, ...(g.log || [])];
+          changed = true;
+          return { ...c, status: "failed" };
+        }
+        return c;
+      });
+    }
+    setGame(g);
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify(g)); } catch {}
   }, []);
 
   const startGame = useCallback((name, skills) => {

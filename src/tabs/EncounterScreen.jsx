@@ -73,7 +73,6 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           <div className="flex-gap">
             <button className="btn btn-red" onClick={() => fightRound("fight")}>⚔ FIGHT</button>
             <button className="btn btn-blue" onClick={flee}>↗ FLEE</button>
-            <button className="btn btn-gray" onClick={surrender}>🏳 SURRENDER</button>
           </div>
         )}
       </div>
@@ -296,12 +295,18 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           : captain.wants === "beam"
           ? game.weapons.some(w => w.id === "beam")
           : game.shields.some(s => s.id === captain.wants);
+
+        if (!hasItem) return {
+          title: captain.emoji + " " + captain.name.toUpperCase(),
+          desc: captain.name + " hails you. \"Looking for a pilot with a " + captain.wantsName + ". Keep it in mind if you ever come across one.\"",
+          options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-gray" }]
+        };
+
         return {
           title: captain.emoji + " " + captain.name.toUpperCase(),
-          desc: captain.name + " hails you in a Wasp-class ship. \"I need a " + captain.wantsName + " urgently. I can teach you something valuable in return.\"",
+          desc: captain.name + " hails you. \"I need your " + captain.wantsName + ". In exchange — I'll teach you something you won't forget.\"",
           options: [
-            { label: hasItem ? "TRADE (" + captain.gives + ")" : "NO " + captain.wantsName.toUpperCase(), action: () => {
-              if (!hasItem) return;
+            { label: "TRADE → " + captain.gives, action: () => {
               let newWeapons = game.weapons;
               let newShields = game.shields;
               if (captain.wants === "military" || captain.wants === "beam") {
@@ -313,7 +318,7 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
               onUpdate({ ...game, weapons: newWeapons, shields: newShields, skills: newSkills,
                 log: [{ type: "good", text: captain.name + ": traded " + captain.wantsName + " → " + captain.gives }, ...game.log] });
               onDone();
-            }, cls: hasItem ? "btn-gold" : "btn-disabled" },
+            }, cls: "btn-gold" },
             { label: "DECLINE", action: () => onDone(), cls: "btn-gray" },
           ]
         };
@@ -322,16 +327,14 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
         title: "👽 ALIEN ENCOUNTER",
         desc: "A strange alien vessel drifts alongside you. Through its hull you can see a glowing learning machine. The alien gestures — 3,000 credits for one session.",
         options: [
-          { label: game.credits >= 3000 ? "USE MACHINE (3000 cr)" : "CAN'T AFFORD", action: () => {
-            if (game.credits < 3000) return;
-            const skills = ["pilot","fighter","trader","engineer"];
-            const s = pick(skills);
+          ...(game.credits >= 3000 ? [{ label: "USE MACHINE (3000 cr)", action: () => {
+            const s = pick(["pilot","fighter","trader","engineer"]);
             const worked = Math.random() < 0.6;
             const newSkills = worked ? { ...game.skills, [s]: Math.min(10, game.skills[s] + 1) } : game.skills;
             onUpdate({ ...game, credits: game.credits - 3000, skills: newSkills,
-              log: [{ type: worked ? "good" : "warn", text: worked ? "Alien machine worked! +" + s + " skill" : "Machine malfunctioned — no effect (deprecated model)." }, ...game.log] });
+              log: [{ type: worked ? "good" : "warn", text: worked ? "Alien machine worked! +" + s + " skill" : "Machine malfunctioned — no effect." }, ...game.log] });
             onDone();
-          }, cls: game.credits >= 3000 ? "btn-blue" : "btn-disabled" },
+          }, cls: "btn-blue" }] : [{ label: "INTRIGUING — NOT ENOUGH CREDITS", action: () => onDone(), cls: "btn-gray" }]),
           { label: "IGNORE", action: () => onDone(), cls: "btn-gray" },
         ]
       },
@@ -340,54 +343,42 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
         if (!merc) return {
           title: "🤝 MERCENARY",
           desc: "A spacer offers their services, but your crew is full.",
-          options: [{ label: "DECLINE", action: () => onDone(), cls: "btn-gray" }]
+          options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-gray" }]
         };
-        const maxMercs = game.ship.slots_c ?? 0;
-        const full = (game.mercenaries || []).length >= maxMercs;
+        const full = (game.mercenaries || []).length >= (game.ship.slots_c ?? 0);
         return {
           title: "🤝 MERCENARY: " + merc.name.toUpperCase(),
-          desc: merc.name + " is looking for work. Skills: Pilot " + merc.skills.pilot + " / Fighter " + merc.skills.fighter + " / Trader " + merc.skills.trader + " / Engineer " + merc.skills.engineer + ". Daily rate: " + merc.cost + " cr/day.",
-          options: [
-            { label: full ? "NO CREW QUARTERS" : "HIRE (" + merc.cost + " cr/day)", action: () => {
-              if (full) return;
-              const newMercs = [...(game.mercenaries || []), merc];
-              onUpdate({ ...game, mercenaries: newMercs,
-                log: [{ type: "good", text: merc.name + " hired for " + merc.cost + " cr/day." }, ...game.log] });
-              onDone();
-            }, cls: full ? "btn-disabled" : "btn-green" },
-            { label: "PASS", action: () => onDone(), cls: "btn-gray" },
-          ]
+          desc: merc.name + " seeks work. Check the Jobs board at any planet to hire crew.",
+          options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-blue" }]
         };
       })(),
       sealed_cargo: {
         title: "🎁 SEALED CARGO",
         desc: "A second-hand dealer offers you 3 sealed cargo containers for 1,000 cr. Could be anything — water to robots!",
         options: [
-          { label: "BUY (1000 cr)", action: () => {
-            if (game.credits < 1000) return;
+          ...(game.credits >= 1000 ? [{ label: "BUY (1000 cr)", action: () => {
             const items = ["water","furs","food","ore","games","medicine","robots"];
             const newCargo = [...game.cargo, { id: pick(items), qty: 3, buyPrice: 333 }];
-            onUpdate({ ...game, credits: game.credits - 1000, cargo: newCargo, log: [{ type: "info", text: "Opened sealed cargo!" }, ...game.log] });
+            onUpdate({ ...game, credits: game.credits - 1000, cargo: newCargo,
+              log: [{ type: "info", text: "Opened sealed cargo!" }, ...game.log] });
             onDone();
-          }, cls: game.credits >= 1000 ? "btn-gold" : "btn-disabled" },
-          { label: "PASS", action: () => onDone(), cls: "btn-gray" },
+          }, cls: "btn-gold" }] : []),
+          { label: game.credits >= 1000 ? "PASS" : "CAN'T AFFORD — PASS", action: () => onDone(), cls: "btn-gray" },
         ]
       },
       tonic: {
         title: "🧪 ALIEN TONIC",
         desc: "A traveler offers you a bottle of alien brew. Rumored to enhance skills — expiration date unreadable.",
         options: [
-          { label: "DRINK (500 cr)", action: () => {
-            if (game.credits < 500) return;
-            const skills = ["pilot","fighter","trader","engineer"];
-            const s = pick(skills);
+          ...(game.credits >= 500 ? [{ label: "DRINK (500 cr)", action: () => {
+            const s = pick(["pilot","fighter","trader","engineer"]);
             const worked = Math.random() < 0.4;
             const newSkills = worked ? { ...game.skills, [s]: Math.min(10, game.skills[s] + 1) } : game.skills;
             onUpdate({ ...game, credits: game.credits - 500, skills: newSkills,
               log: [{ type: worked ? "good" : "warn", text: worked ? "Tonic worked! +" + s : "Tonic had no effect." }, ...game.log] });
             onDone();
-          }, cls: game.credits >= 500 ? "btn-green" : "btn-disabled" },
-          { label: "DECLINE", action: () => onDone(), cls: "btn-gray" },
+          }, cls: "btn-green" }] : []),
+          { label: game.credits >= 500 ? "DECLINE" : "CAN'T AFFORD — DECLINE", action: () => onDone(), cls: "btn-gray" },
         ]
       },
     };

@@ -54,10 +54,11 @@ function generateContracts(system, galaxy, days) {
       usedTargets.add(targetSys.id);
 
       const killCount = rnd(2, 5);
-      // Per-kill reward: 800-2000 cr — combat pays 3x more than delivery per unit effort
       const rewardPerKill = rnd(800, 2000);
       const reward = Math.round(killCount * rewardPerKill / 50) * 50;
-      const daysAllowed = rnd(5, 10);
+      // Deadline: travel time + 2 days per kill + 2 buffer
+      const travelDays = Math.ceil(dist(system, targetSys) / 120); // ~12pc/day average
+      const daysAllowed = Math.max(8, travelDays + killCount * 2 + 2);
       contracts.push({
         id: "c_" + system.id + "_" + i + "_" + days,
         type: "extermination",
@@ -125,18 +126,6 @@ function checkContractArrival(game, arrivedSystemId) {
     if (c.type === "assassination" && c.targetSystemId === arrivedSystemId && c.status === "active") {
       // Will trigger boss encounter — mark as pending fight
       return { ...c, status: "pending_fight" };
-    }
-    return c;
-  });
-
-  // Deadline check — fail overdue contracts
-  newGame.activeContracts = (newGame.activeContracts || []).map(c => {
-    if (c.status === "active" && c.deadline <= newGame.days) {
-      newGame.credits -= c.penalty;
-      newGame.reputation = (newGame.reputation || 0) - 1;
-      failedContracts.push(c);
-      newGame.log = [{ type: "bad", text: "Contract FAILED: " + c.title + " — penalty " + c.penalty + " cr" }, ...newGame.log];
-      return { ...c, status: "failed" };
     }
     return c;
   });

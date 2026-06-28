@@ -97,7 +97,7 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
         {tab === "ship" && <ShipScreen game={game} onUpdate={onUpdate} />}
         {tab === "bank" && <BankScreen game={game} onUpdate={onUpdate} />}
         {tab === "jobs" && <ContractsScreen game={game} onUpdate={onUpdate} onPlotCourse={handlePlotCourse} />}
-        {tab === "log" && <LogScreen game={game} />}
+        {tab === "log" && <LogScreen game={game} onPlotCourse={handlePlotCourse} />}
       </>)}
     </div>
   );

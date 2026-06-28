@@ -23,7 +23,9 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     }
   }, [initialSelected]);
   const currentSys = game.galaxy[game.currentSystem];
-  const selectedSys = selected !== null ? game.galaxy[selected] : null;
+  // Auto-clear selection if we just arrived at the selected system
+  const effectiveSelected = selected === game.currentSystem ? null : selected;
+  const selectedSys = effectiveSelected !== null ? game.galaxy[effectiveSelected] : null;
   const jumpRange = game.ship.jump + (game.gadgets.some(g => g.id === "fuel_compressor") ? 3 : 0);
   const fuel = selectedSys ? fuelCost(currentSys, selectedSys) : 0;
   const inRange = selectedSys ? canReach(currentSys, selectedSys, jumpRange) : false;
@@ -67,17 +69,6 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
       }
     }
 
-    // Check contract deadlines on every jump
-    newGame.activeContracts = (newGame.activeContracts || []).map(c => {
-      if (c.status === "active" && c.deadline <= newGame.days) {
-        newGame.credits -= c.penalty;
-        newGame.reputation = (newGame.reputation || 0) - 1;
-        newGame.log = [{ type: "bad", text: "Contract FAILED: " + c.title + " — penalty " + c.penalty + " cr" }, ...newGame.log];
-        return { ...c, status: "failed" };
-      }
-      return c;
-    });
-
     // Debt interest: 1% per day
     if (newGame.debt > 0) {
       const interest = Math.ceil(newGame.debt * 0.01);
@@ -119,17 +110,56 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     const logEntry = { type: "info", text: "Traveled to " + selectedSys.name + ". Fuel: " + fuel + " cr" };
     newGame.log = [logEntry, ...newGame.log].slice(0, 50);
 
-    // Build news from system events + galaxy-wide quest news
+    // Build news: current system + events in reachable neighbours
     const arrivedSys = newGame.galaxy[selected];
-    const sysEvents = arrivedSys.market?.events || [];
-    const eventNews = sysEvents.map(e => ({ text: e.text, quest: false, event: true }));
-    const questNews = newGame.quests
-      .filter(q => q.status === "available")
-      .map(q => ({ text: q.desc, quest: true }));
+    const jumpRange = (newGame.ship.jump || 14) * 10;
+
+    // Current system header
     const staticNews = [
       { text: arrivedSys.name + " — " + TECH_LEVELS[arrivedSys.tech] + " · " + GOV_TYPES[arrivedSys.gov] + " · Pop " + SIZES[arrivedSys.size] }
     ];
-    newGame.news = [...eventNews, ...staticNews, ...questNews].slice(0, 8);
+
+    // Local events with price effects and days left
+    const sysEvents = arrivedSys.market?.events || [];
+    const localEventNews = sysEvents
+      .filter(e => (e.daysLeft ?? 0) > 0)
+      .map(e => {
+        const ups   = Object.keys(e.effects||{}).filter(k => e.effects[k] > 1.15).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        const downs = Object.keys(e.effects||{}).filter(k => e.effects[k] < 0.85).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        let fx = "";
+        if (ups.length)   fx += " ↑ " + ups.join(", ");
+        if (downs.length) fx += " ↓ " + downs.join(", ");
+        return { text: "LOCAL: " + e.text + fx + " (" + e.daysLeft + "d)", event: true };
+      });
+
+    // Nearby system events within jump range
+    const nearbyEventNews = [];
+    for (const sys of newGame.galaxy) {
+      if (sys.id === selected) continue;
+      const d = Math.hypot(sys.x - arrivedSys.x, sys.y - arrivedSys.y);
+      if (d > jumpRange) continue;
+      const events = sys.market?.events || [];
+      for (const ev of events) {
+        if ((ev.daysLeft ?? 0) <= 0) continue;
+        const ups   = Object.keys(ev.effects||{}).filter(k => ev.effects[k] > 1.15).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        const downs = Object.keys(ev.effects||{}).filter(k => ev.effects[k] < 0.85).map(k => COMMODITIES.find(c=>c.id===k)?.name||k);
+        let fx = "";
+        if (ups.length)   fx += " ↑ " + ups.join(", ");
+        if (downs.length) fx += " ↓ " + downs.join(", ");
+        nearbyEventNews.push({
+          text: sys.name + ": " + ev.text + fx + " (" + ev.daysLeft + "d left)",
+          event: true,
+          system: sys.id,
+        });
+      }
+    }
+
+    // Quest hints
+    const questNews = newGame.quests
+      .filter(q => q.status === "available")
+      .map(q => ({ text: q.desc, quest: true }));
+
+    newGame.news = [...staticNews, ...localEventNews, ...nearbyEventNews, ...questNews].slice(0, 10);
 
     setSelected(null);
 
@@ -191,7 +221,7 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     <div>
       <div className="panel">
         <div className="panel-title">Galaxy Chart</div>
-        <GalaxyMap galaxy={game.galaxy} current={game.currentSystem} selected={selected}
+        <GalaxyMap galaxy={game.galaxy} current={game.currentSystem} selected={effectiveSelected}
           onSelect={setSelected} jumpRange={jumpRange} />
         {selectedSys && (
           <div style={{ marginTop: 8 }}>
@@ -229,34 +259,7 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
             c.targetSystemId === game.currentSystem
           );
 
-          // Debug: show all combat contracts regardless of system
-          const allCombatContracts = (game.activeContracts || []).filter(c =>
-            c.type === "extermination" || c.type === "assassination"
-          );
-
-          if (patrolContracts.length === 0) {
-            if (allCombatContracts.length === 0) return null;
-            // Show inactive contracts with explanation
-            return (
-              <div style={{ marginTop: 10, border: "1px solid #2a2a5a", borderRadius: 4, padding: 10 }}>
-                <div style={{ fontSize: 14, color: "#555588", marginBottom: 6 }}>Combat contracts:</div>
-                {allCombatContracts.map(c => (
-                  <div key={c.id} style={{ fontSize: 13, color: "#444466", marginBottom: 4 }}>
-                    {c.emoji} {c.title}
-                    <span style={{ marginLeft: 6, color:
-                      c.status === "failed" ? "#ff4444" :
-                      c.targetSystemId !== game.currentSystem ? "#888800" : "#555588"
-                    }}>
-                      {c.status === "failed" ? "— FAILED (expired)" :
-                       c.targetSystemId !== game.currentSystem
-                         ? "— patrol in " + (game.galaxy.find(s => s.id === c.targetSystemId)?.name || "?")
-                         : "— " + c.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            );
-          }
+          if (patrolContracts.length === 0) return null;
           const sys = game.galaxy[game.currentSystem];
           const hasPirates = sys.pirates >= 1;
 

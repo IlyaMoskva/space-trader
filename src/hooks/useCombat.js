@@ -81,13 +81,16 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
           const myWeaponTier = finalGame.weapons.length
             ? Math.max(...finalGame.weapons.map(w => w.id==="military"?3:w.id==="beam"?2:1)) : 0;
           const myShipTier = SHIPS.findIndex(s => s.id === finalGame.ship.id) ?? 0;
-          const playerPower = Math.round((eff.fighter/10*4) + myWeaponTier + (myShipTier/9*3));
+          // Fighter skill weighted most heavily — weapon/ship are tools, skill is experience
+          const playerPower = Math.round((eff.fighter/10*6) + myWeaponTier*0.5 + (myShipTier/9*2));
           const enemyWeaponTier = encounter.weapon?.id==="military"?3:encounter.weapon?.id==="beam"?2:1;
           const enemyPower = Math.round((shipIdx/9*7) + enemyWeaponTier);
-          const gainChance = Math.min(0.50, 0.05 + Math.max(0, (enemyPower - playerPower) * 0.10));
-          if (Math.random() < gainChance) {
-            const sk = finalGame.skills.pilot <= finalGame.skills.fighter ? "pilot" : "fighter";
-            const cur = finalGame.skills[sk];
+          const gainChance = Math.min(0.60, 0.08 + Math.max(0, (enemyPower - playerPower) * 0.12));
+          const sk = finalGame.skills.pilot <= finalGame.skills.fighter ? "pilot" : "fighter";
+          const cur = finalGame.skills[sk];
+          // Diminishing returns: each level harder to gain (skill 9 = 40% of base chance)
+          const diminished = gainChance * (1 - cur / 15);
+          if (Math.random() < diminished) {
             if (cur < 10) {
               finalGame.skills = { ...finalGame.skills, [sk]: cur + 1 };
               finalGame.log = [{ type: "good", text: (sk === "pilot" ? "Pilot" : "Fighter") + " +1 (now " + (cur+1) + ")!" }, ...finalGame.log];

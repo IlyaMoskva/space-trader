@@ -12,39 +12,39 @@ function effectiveSkills(game) {
   return result;
 }
 
-function generatePirateShip(system, playerKills) {
-  const kills = playerKills || 0;
+function generatePirateShip(system, player) {
+  // Support legacy call with just kills number
+  const playerKills = typeof player === "number" ? player : (player?.killed || 0);
+  const skills      = typeof player === "object" && player ? (player.skills || {}) : {};
+  const weapons     = typeof player === "object" && player ? (player.weapons || []) : [];
+  const playerShip  = typeof player === "object" && player ? player.ship : null;
+
   const techLevel = system?.tech || 0;
 
-  // Threat score: 0-10 based on system tech + player reputation
-  // Every 5 kills adds 1 threat point, capped at 5 from kills
-  const threatFromKills = Math.min(5, Math.floor(kills / 5));
-  const threat = Math.min(10, techLevel + threatFromKills);
+  // Player combat power (0-10): based on actual gear + fighter skill
+  const fighterSkill  = skills.fighter || 0;
+  const weaponTierVal = weapons.length
+    ? Math.max(...weapons.map(w => w.id==="military"?3:w.id==="beam"?2:w.id==="pulse"?1:0)) : 0;
+  const shipTier      = playerShip ? SHIPS.findIndex(s => s.id === playerShip.id) : 2;
+  const playerPower   = Math.round((fighterSkill/10*6) + weaponTierVal*0.5 + (Math.max(0,shipTier)/9*2));
 
-  // Pick ship tier based on threat with some randomness
+  // Threat = system danger + modest kill rep, capped by player power+2
+  const threatFromKills = Math.min(3, Math.floor(playerKills / 8));
+  const rawThreat = Math.min(10, techLevel + threatFromKills);
+  const threat = Math.min(rawThreat, Math.max(2, playerPower + 2));
+
   let shipPool;
-  if (threat <= 2) {
-    shipPool = SHIPS.slice(0, 3);       // Flea, Gnat, Firefly
-  } else if (threat <= 4) {
-    shipPool = SHIPS.slice(1, 5);       // Gnat → Bumblebee
-  } else if (threat <= 6) {
-    shipPool = SHIPS.slice(3, 7);       // Mosquito → Hornet
-  } else if (threat <= 8) {
-    shipPool = SHIPS.slice(5, 9);       // Beetle → Termite
-  } else {
-    shipPool = SHIPS.slice(7, 10);      // Grasshopper → Wasp
-  }
+  if (threat <= 2)      shipPool = SHIPS.slice(0, 3);
+  else if (threat <= 4) shipPool = SHIPS.slice(1, 5);
+  else if (threat <= 6) shipPool = SHIPS.slice(3, 7);
+  else if (threat <= 8) shipPool = SHIPS.slice(5, 9);
+  else                  shipPool = SHIPS.slice(7, 10);
 
   const ship = pick(shipPool);
-
-  // Pick weapon scaled to threat
   const weaponTier = Math.min(WEAPONS.length - 1, Math.floor(threat / 4));
   const weapon = WEAPONS[weaponTier];
-
-  // Shields: only mid+ threat pirates have shields
   const shieldStrength = threat >= 5
-    ? (threat >= 8 ? SHIELDS[1].strength : SHIELDS[0].strength)
-    : 0;
+    ? (threat >= 8 ? SHIELDS[1].strength : SHIELDS[0].strength) : 0;
 
   return { ship, weapon, hull: ship.hull, hullMax: ship.hull, shields: shieldStrength, shieldsMax: shieldStrength };
 }

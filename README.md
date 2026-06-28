@@ -2,9 +2,7 @@
 
 A faithful reimagining of the classic Palm OS game **Space Trader** (2002, Pieter Spronck), built as a Progressive Web App — installable on iPhone and Android, playable fully offline.
 
-## Play
-
-→ **[Play online](https://ilyamoskva.github.io/space-trader/)**
+🎮 **[Play online](https://ilyamoskva.github.io/space-trader/)**
 
 **Install on iPhone:** Safari → Share → Add to Home Screen → works offline.
 
@@ -12,118 +10,126 @@ A faithful reimagining of the classic Palm OS game **Space Trader** (2002, Piete
 
 ## What is Space Trader?
 
-Trading RPG originally for Palm OS (2002). Start with a Gnat-class ship, pulse laser, 1000 cr on planet Lave. Goal: accumulate 500,000 cr, buy a moon, retire.
+Trading RPG originally for Palm OS. Start with a Gnat-class ship, pulse laser, 1000 cr on planet Lave. Goal: accumulate 500,000 cr, buy a moon, retire.
 
 ---
 
-## Faithful to the original
-
-- Gnat start, 1000 cr, planet Lave
-- 10 ship types (Flea → Wasp) with weapon / shield / gadget / crew slots
-- 11 commodities including 2 illegal
-- Tech levels 0–8 and 8 government types affecting prices
-- Police inspections, pirate combat, bank with 1%/day interest
-- Escape Pod, story quests, win condition
-
----
-
-## What's new
-
-### Ships
-All 10 ships have unique **Star Wars–style SVG pixel art** silhouettes — Flea as a dart, Gnat as X-wing, Mosquito as TIE Interceptor, Wasp as Imperial Star Destroyer. Enemy ships are mirrored in combat. Energy shields show as blue bars, reflective shields as gold.
+## What's in this version
 
 ### Galaxy
-- 50 procedurally generated systems per game, clustered, Lave at centre
-- **Connectivity guaranteed**: every system reachable from Lave at Gnat range (14 pc); 2+ systems always within Flea range (5 pc)
-- Full-galaxy map auto-fits to actual system spread; jump-range circle; Local/Full toggle
+- 50 procedurally generated systems via **Poisson Disk Sampling + bridge repair**
+- Even spread across the map — no clustering around Lave
+- Every system reachable from Lave; all ships jump 11–17 pc
+
+### Ships
+All 10 ships have unique **Star Wars–style SVG pixel art** silhouettes. Enemy ships are mirrored in combat.
+
+| Ship | Jump | Slots W/S/G/C | Price |
+|---|---|---|---|
+| Flea | 17 pc | 0/0/1/0 | 2,000 cr |
+| Gnat | 14 pc | 1/0/1/0 | start |
+| Firefly | 17 pc | 1/1/1/1 | 25,000 cr |
+| Mosquito | 13 pc | 2/1/1/1 | 30,000 cr |
+| Bumblebee | 15 pc | 1/2/2/2 | 40,000 cr |
+| Beetle | 12 pc | 2/1/3/2 | 60,000 cr |
+| Hornet | 16 pc | 3/2/2/2 | 100,000 cr |
+| Grasshopper | 15 pc | 2/2/3/3 | 150,000 cr |
+| Termite | 11 pc | 1/3/3/3 | 225,000 cr |
+| Wasp | 14 pc | 3/2/2/3 | 300,000 cr |
 
 ### Economy — three-layer pricing
-1. **Tech profile**: each commodity has `produced` and `consumed` tech levels — agricultural planets produce food cheaply, Hi-Tech planets produce robots cheaply
-2. **Government modifier**: Anarchy subsidises everything; Communist subsidises raw/medicine; Democracy regulates weapons; Theocracy marks up drugs ×2.2
-3. **Live stock curve**: buying depletes stock and raises price; selling adds to stock and lowers it; refreshes 35% on revisit
+1. **Tech profile** — each commodity has produced/consumed tech levels
+2. **Government modifier** — Anarchy subsidises everything; Theocracy marks up drugs ×2.2
+3. **Live stock curve** — buying raises price, selling lowers it
 
-**14 planet events** move prices for 2–8 days — War, Drought, Plague, Harvest, Tech Boom, Strike, Pirate Raids, Economic Boom, Ore Strike, Drug Crackdown, Cold Winter, Flood, Festival, Industrial Accident. Events shown in news feed with `⚠`.
+**14 planet events** move prices for 2–8 days. News feed shows neighbouring system events with price effects and days remaining — click to plot course.
 
-**P/L column** in trade screen shows live profit/loss per unit vs average buy price.
-
-### Skills — all four matter
+### Skills
 
 | Skill | Effect |
 |---|---|
 | **Pilot** | +4%/level evasion · −4%/level police notice |
 | **Fighter** | +5%/level hit chance |
-| **Trader** | Equipment sell price 70% + 2%/level (max 90%) |
+| **Trader** | Equipment sell price 70% + 2%/level |
 | **Engineer** | Repair −5%/level · auto-repair 3%/level chance per jump |
 
-Ways to improve: Elite Captains (6 named, trade gear for +1), Alien Learning Machine (3000 cr, 60% chance), Alien Tonic (500 cr, 40%), quest rewards (Wild → +1 Pilot).
+Gain: beat stronger enemies (+skill), Elite Captains (trade gear), Alien Machine (3000 cr), Alien Tonic (500 cr), quest rewards.
 
-### Mercenaries
-8 unique crew members; daily wages per jump; effective skill = max(yours, best merc), shown as `4/9`; crew slots per ship (Flea/Gnat: 0, Wasp: 3).
+### Combat
+- **Pirate scaling** by your actual gear — never sends Elite ships at a rookie
+- **Wave attacks** in high-pirate systems (1–3 waves)
+- **Pirate flee** when hull < 25%; chance depends on relative Pilot skills
+- Shields shown per-slot: ⬡ Energy (blue), ◆ Reflective (gold), ⚡ Lightning (gold)
 
-### Pirate scaling
+### Reputation (−10 to +10)
 
-Threat = system tech + kills/5:
+| Range | Label | Effect |
+|---|---|---|
+| +7..+10 | LEGEND | Police lenient; pirates come angrier |
+| +4..+6 | RESPECTED | — |
+| 0..+3 | NEUTRAL | — |
+| −1..−3 | SUSPECT | Police inspect more often |
+| −4..−6 | WANTED | Police attacks on sight |
+| −7..−10 | PIRATE ⚠ HUNTED | Bounty hunters spawn; weak pirates flee |
 
-| Label | Ships | Weapon | Shields |
-|---|---|---|---|
-| WEAK | Flea–Firefly | Pulse | — |
-| MODERATE | Gnat–Bumblebee | Pulse | — |
-| ARMED | Mosquito–Hornet | Beam | Energy |
-| DANGEROUS | Beetle–Termite | Beam | Energy |
-| ELITE | Grasshopper–Wasp | Military | Reflective |
-
-Bounty scales with ship class: Flea 300–600 cr, Wasp 2000–2300 cr.
+Attack traders (rep −2), pay fines in Bank, surrender to police (rep +3).
 
 ### Contracts (JOBS tab)
-
-1–3 per planet, refreshed on visit, max 3 active, one of each type per board:
-
 | Type | Mechanic | Reward |
 |---|---|---|
-| 📦 Delivery | Cargo occupies hold, time limit, ~30% penalty | Distance-based |
-| ⚔️ Extermination | Kill N pirates; use **PATROL** on WARP tab | 800–2000 cr/kill |
-| 🎯 Assassination | Named boss fight on arrival | 5000–15000 cr |
+| 📦 Delivery | Cargo in hold, deadline = distance-based | Distance-based |
+| ⚔️ Extermination | Kill N pirates via PATROL | 800–2000 cr/kill |
+| 🎯 Assassination | Boss fight on arrival | 5000–15000 cr |
 
-### Trader encounters
-Split into **THEY SELL** (legal goods at slight discount) and **THEY BUY** (anything including illegal, sometimes at premium). Safe way to offload contraband.
+### Mercenaries (JOBS tab)
+0–3 available per planet, based on population and character. High-tech planets attract engineers/traders; lawless planets attract fighters. Skill comparison shows where a merc improves your effective skill.
 
-### Story quests
-
+### Story Quests (hidden until revealed via news)
 | Quest | Reward |
 |---|---|
-| 🐉 Dragonfly | Boss fight → Lightning Shield |
-| 👾 Alien Invasion | Warn planet → Fuel Compressor (+3 pc) |
+| 🐉 Dragonfly | Destroy experimental ship → Lightning Shield |
+| 👾 Alien Invasion | Warn planet in time → Fuel Compressor |
 | 🔬 Warn the Doctor | Race 12 days → Portable Singularity |
-| 🤝 Wild | Smuggle with Beam Laser+ → +1 Pilot |
+| 🤝 Wild | Smuggle with Beam Laser → +1 Pilot |
 
 ---
 
 ## Tech stack
 
-React 18 · Vite 5 · vite-plugin-pwa · VT323 pixel font · localStorage only
+React 18 · Vite 5 · vite-plugin-pwa · VT323 pixel font · localStorage
+
+### Project structure
+```
+src/
+├── App.jsx              # root — CSS + App() only
+├── constants/           # ships, commodities, world, events, mercenaries
+├── engine/              # pure functions: galaxy, market, combat, contracts, quests, utils
+├── hooks/               # useGameState, useCombat
+├── components/          # ShipSprite, GalaxyMap, StatusBar, MenuModal, QuestPopup, StarsCanvas, SkillBar
+├── screens/             # TitleScreen, GameScreen
+└── tabs/                # TradeScreen, TravelScreen, ShipScreen, BankScreen, ContractsScreen, LogScreen, EncounterScreen
+```
 
 ## Dev
 
 ```bash
 npm install
 npm run dev
-npm test        # 33 game logic tests
+npm test          # 33 game logic tests + static import checker
 npm run build
 ```
 
 ## Deploy
 
-Push to `master` → GitHub Actions builds and deploys to `gh-pages`.
+Push to `master` → GitHub Actions → `gh-pages` branch.
 
-**Settings → Pages → Source → Deploy from a branch → `gh-pages` → `/ (root)`**
+**Settings → Pages → Source → gh-pages → / (root)**
 
 ---
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits
 
 Original game by [Pieter Spronck](https://spronck.net/spacetrader/), GPL.
 PWA port: React + Vite. System names from Elite (1984).
+
+See [CHANGELOG.md](CHANGELOG.md) for full history.

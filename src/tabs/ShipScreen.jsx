@@ -166,25 +166,35 @@ function ShipScreen({ game, onUpdate }) {
               })()}
             </div>
           )}
-          {(canRepair || canRepairShields) && (() => {
+          {(() => {
             const needed = game.hullMax - game.hull;
             const discount = 1 - (game.skills.engineer || 0) * 0.05;
             const costPerHp = Math.max(1, Math.round(2 * discount));
             const hullCost = needed * costPerHp;
             const shieldNeeded = game.shields.reduce((sum, s) => sum + (s.max - s.current), 0);
             const shieldCost = Math.max(1, Math.round(shieldNeeded * discount));
+            const noShipyard = sys.tech < 2;
+            const hullFull = game.hull >= game.hullMax;
+            const shieldsFull = !game.shields.some(s => s.current < s.max);
+            const hint = noShipyard ? "Requires tech level 2+ shipyard"
+              : null;
             return (
-              <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {canRepair && (
-                  <button className="btn btn-green" onClick={repairHull} style={{ fontSize: 15, flex: 1 }}>
-                    REPAIR HULL ({hullCost} cr{game.skills.engineer > 0 ? " · Eng" : ""})
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    className={"btn " + (!noShipyard && !hullFull ? "btn-green" : "btn-disabled")}
+                    style={{ fontSize: 15, flex: 1 }}
+                    onClick={!noShipyard && !hullFull ? repairHull : undefined}>
+                    {hullFull ? "HULL OK" : "REPAIR HULL" + (!noShipyard ? " (" + hullCost + " cr" + (game.skills.engineer > 0 ? " · Eng" : "") + ")" : "")}
                   </button>
-                )}
-                {canRepairShields && (
-                  <button className="btn btn-blue" onClick={repairShields} style={{ fontSize: 15, flex: 1 }}>
-                    RECHARGE SHIELDS ({shieldCost} cr)
+                  <button
+                    className={"btn " + (!noShipyard && !shieldsFull && game.shields.length > 0 ? "btn-blue" : "btn-disabled")}
+                    style={{ fontSize: 15, flex: 1 }}
+                    onClick={!noShipyard && !shieldsFull && game.shields.length > 0 ? repairShields : undefined}>
+                    {game.shields.length === 0 ? "NO SHIELDS" : shieldsFull ? "SHIELDS OK" : "RECHARGE SHIELDS" + (!noShipyard ? " (" + shieldCost + " cr)" : "")}
                   </button>
-                )}
+                </div>
+                {hint && <div style={{ fontSize: 13, color: "#555566", marginTop: 5 }}>⚠ {hint}</div>}
               </div>
             );
           })()}

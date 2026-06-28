@@ -58,6 +58,94 @@ function ContractsScreen({ game, onUpdate, onPlotCourse }) {
 
   return (
     <div>
+      {/* Mercenaries for hire */}
+      {(() => {
+        const hired = game.mercenaries || [];
+        const maxSlots = game.ship.slots_c ?? 0;
+        const sys = game.galaxy[game.currentSystem];
+        const seed = sys.id * 31 + Math.floor(game.days / 3) * 17;
+        const seededRng = (n) => ((seed * 1103515245 + n * 12345) >>> 0) / 0xFFFFFFFF;
+        const baseChance = 0.30;
+        const sizeBonus = sys.size * 0.06;
+        const showBoard = seededRng(0) < (baseChance + sizeBonus);
+        if (!showBoard && hired.length === 0) return null;
+        const maxCount = sys.size >= 4 ? 3 : sys.size >= 2 ? 2 : 1;
+        const fighterBias = (sys.pirates||0) * 2 + Math.max(0, 4 - (sys.tech||0));
+        const civilianBias = (sys.tech||0) + (sys.size||0);
+        const eff = effectiveSkills(game);
+        const scored = MERCENARY_POOL
+          .filter(m => !hired.find(x => x.id === m.id))
+          .map((m, i) => {
+            const isFighter = m.skills.fighter >= 7;
+            const bias = isFighter ? fighterBias : civilianBias;
+            return { m, score: seededRng(i + 1) * 10 + bias };
+          })
+          .sort((a, b) => b.score - a.score);
+        const available = scored
+          .filter((_, i) => i < maxCount && seededRng(i + 10) < 0.55)
+          .map(x => x.m);
+        if (available.length === 0 && hired.length === 0) return null;
+        return (
+          <div className="panel">
+            <div className="panel-title">👥 Crew ({hired.length}/{maxSlots} quarters)</div>
+            {hired.map(m => (
+              <div key={m.id} style={{ padding:"6px 0", borderBottom:"1px solid #1a1a3a" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <span style={{ fontSize:15, color:"#ffd700" }}>{m.name}</span>
+                  <span style={{ fontSize:13, color:"#555588" }}>{m.cost} cr/day</span>
+                </div>
+                <div style={{ fontSize:13, color:"#8888bb", marginTop:2 }}>
+                  P:{m.skills.pilot} F:{m.skills.fighter} T:{m.skills.trader} E:{m.skills.engineer}
+                </div>
+                <button className="btn btn-red" style={{ fontSize:13, padding:"2px 8px", marginTop:4 }}
+                  onClick={() => onUpdate({ ...game,
+                    mercenaries: hired.filter(x => x.id !== m.id),
+                    log: [{ type:"warn", text: m.name + " let go." }, ...game.log]
+                  })}>FIRE</button>
+              </div>
+            ))}
+            {available.length > 0 && (
+              <>
+                <div style={{ fontSize:13, color:"#555588", margin:"8px 0 4px" }}>Available for hire:</div>
+                {available.map(m => {
+                  const canHire = (maxSlots - hired.length) > 0;
+                  return (
+                    <div key={m.id} style={{ padding:"6px 0", borderBottom:"1px solid #1a1a3a" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between" }}>
+                        <span style={{ fontSize:15, color:"#c0c0ff" }}>{m.name}</span>
+                        <span style={{ fontSize:13, color:"#555588" }}>{m.cost} cr/day</span>
+                      </div>
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:4, margin:"4px 0", fontSize:13 }}>
+                        {["pilot","fighter","trader","engineer"].map(sk => {
+                          const boost = m.skills[sk] > eff[sk];
+                          return (
+                            <div key={sk} style={{ color: boost ? "#00ff88" : "#555588" }}>
+                              {sk.slice(0,3).toUpperCase()}: {m.skills[sk]}{boost && " ▲"}
+                              <div style={{ fontSize:11, color:"#444466" }}>you: {eff[sk]}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button className={"btn " + (canHire ? "btn-green" : "btn-disabled")}
+                        style={{ fontSize:13, padding:"3px 10px" }}
+                        onClick={() => {
+                          if (!canHire) return;
+                          onUpdate({ ...game,
+                            mercenaries: [...hired, m],
+                            log: [{ type:"good", text: m.name + " hired for " + m.cost + " cr/day." }, ...game.log]
+                          });
+                        }}>
+                        {canHire ? "HIRE" : "NO QUARTERS"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Bulletin Board */}
       <div className="panel">
         <div className="panel-title">
