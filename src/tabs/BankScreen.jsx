@@ -3,35 +3,65 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 function BankScreen({ game, onUpdate }) {
   const [amount, setAmount] = useState(1000);
   const maxBorrow = Math.max(0, game.credits * 2 - game.debt);
+  const maxRepay  = Math.min(game.debt, game.credits);
+
   const borrow = () => {
     if (amount > maxBorrow || amount < 100) return;
     onUpdate({ ...game, credits: game.credits + amount, debt: game.debt + amount,
       log: [{ type: "warn", text: "Borrowed " + amount + " cr. Debt: " + (game.debt + amount) }, ...game.log] });
   };
-  const repay = () => {
-    const pay = Math.min(amount, game.debt, game.credits);
-    if (pay <= 0) return;
-    onUpdate({ ...game, credits: game.credits - pay, debt: game.debt - pay,
-      log: [{ type: "good", text: "Repaid " + pay + " cr. Debt: " + (game.debt - pay) }, ...game.log] });
+  const repay = (pay) => {
+    const actual = Math.min(pay ?? amount, game.debt, game.credits);
+    if (actual <= 0) return;
+    onUpdate({ ...game, credits: game.credits - actual, debt: game.debt - actual,
+      log: [{ type: "good", text: "Repaid " + actual.toLocaleString() + " cr. Remaining debt: " + (game.debt - actual).toLocaleString() }, ...game.log] });
   };
+
+  // Two separate sliders: borrow (0..maxBorrow) and repay (0..maxRepay)
+  const canBorrow = maxBorrow >= 100;
+  const canRepay  = maxRepay > 0;
+
   return (
     <div className="panel">
       <div className="panel-title">Galactic Bank</div>
       <div className="stat-row"><span className="stat-label">Credits</span><span className="stat-val-green">{game.credits.toLocaleString()} cr</span></div>
       <div className="stat-row"><span className="stat-label">Debt</span><span className="stat-val-red">{game.debt.toLocaleString()} cr</span></div>
       <div className="stat-row"><span className="stat-label">Daily Interest</span><span className="stat-val-red">{game.debt > 0 ? "+" + Math.ceil(game.debt * 0.01) + " cr/day" : "—"}</span></div>
-      <div className="stat-row"><span className="stat-label">Max Borrow</span><span className="stat-val">{maxBorrow.toLocaleString()} cr</span></div>
-      <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 6 }}>Amount</div>
-        <input type="range" min="100" max={Math.max(1000, maxBorrow)} step="100" value={amount}
-          onChange={e => setAmount(+e.target.value)}
-          style={{ width: "100%", accentColor: "#4fc3f7", marginBottom: 6 }} />
-        <div style={{ fontSize: 17, color: "#ffd700", textAlign: "center", marginBottom: 10 }}>{amount.toLocaleString()} cr</div>
-        <div className="flex-gap">
-          <button className={amount <= maxBorrow ? "btn btn-gold" : "btn btn-disabled"} onClick={borrow}>BORROW</button>
-          <button className={game.debt > 0 && game.credits > 0 ? "btn btn-green" : "btn btn-disabled"} onClick={repay}>REPAY</button>
+      <div className="stat-row"><span className="stat-label">Max Borrow</span><span className="stat-val">{maxBorrow > 0 ? maxBorrow.toLocaleString() + " cr" : "—"}</span></div>
+
+      {/* Borrow section */}
+      {canBorrow && (
+        <div style={{ marginTop: 12, padding: "10px", border: "1px solid #2a2a5a", borderRadius: 4 }}>
+          <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 6 }}>Borrow</div>
+          <input type="range" min="100" max={maxBorrow} step="100"
+            value={Math.min(amount, maxBorrow)}
+            onChange={e => setAmount(+e.target.value)}
+            style={{ width: "100%", accentColor: "#ffd700", marginBottom: 4 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 16, color: "#ffd700" }}>{Math.min(amount, maxBorrow).toLocaleString()} cr</span>
+            <button className="btn btn-gold" onClick={borrow}>BORROW</button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Repay section */}
+      {canRepay && (
+        <div style={{ marginTop: 10, padding: "10px", border: "1px solid #1a3a1a", borderRadius: 4 }}>
+          <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 6 }}>Repay (you have {game.credits.toLocaleString()} cr)</div>
+          <input type="range" min="100" max={maxRepay} step="100"
+            value={Math.min(amount, maxRepay)}
+            onChange={e => setAmount(+e.target.value)}
+            style={{ width: "100%", accentColor: "#00ff88", marginBottom: 4 }} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 16, color: "#00ff88" }}>{Math.min(amount, maxRepay).toLocaleString()} cr</span>
+            <button className="btn btn-green" onClick={() => repay()}>REPAY</button>
+            <button className="btn btn-blue" onClick={() => repay(maxRepay)}>REPAY ALL</button>
+          </div>
+        </div>
+      )}
+      {!canRepay && game.debt === 0 && (
+        <div style={{ marginTop: 10, fontSize: 15, color: "#00ff88" }}>✓ No debt</div>
+      )}
       {(game.reputation || 0) <= -3 && (() => {
         const rep = game.reputation || 0;
         const clearCost = Math.abs(rep) * 1000;
