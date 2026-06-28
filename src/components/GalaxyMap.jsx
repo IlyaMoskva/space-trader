@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { distParsecs } from '../engine/utils.js';
+import { canReach, jumpRangeCoords } from '../engine/utils.js';
 
 function GalaxyMap({ galaxy, current, selected, onSelect, jumpRange }) {
   const [zoom, setZoom] = useState(false);

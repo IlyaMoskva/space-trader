@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { TECH_LEVELS } from '../constants/world.js';
+import { initMarket, refreshMarket } from '../engine/market.js';
 
 function SingularityItem({ game, onUpdate }) {
   const [picking, setPicking] = useState(false);

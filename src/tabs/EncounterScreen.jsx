@@ -6,6 +6,8 @@ import { effectiveSkills, generatePirateShip } from '../engine/combat.js';
 import { onPirateKilled } from '../engine/contracts.js';
 import { useCombat } from '../hooks/useCombat.js';
 import ShipSprite from '../components/ShipSprite.jsx';
+import { ELITE_CAPTAINS, MERCENARY_POOL } from '../constants/mercenaries.js';
+import { pick } from '../engine/utils.js';
 
 function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   const { combatLog, enemy, phase, fightRound, flee, surrender } = useCombat({ game, encounter, onUpdate, onDone });

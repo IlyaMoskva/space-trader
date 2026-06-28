@@ -1,5 +1,6 @@
 import { SHIPS, WEAPONS, SHIELDS } from '../constants/ships.js';
 import { rnd, pick } from './utils.js';
+import { COMMODITIES } from '../constants/commodities.js';
 
 function effectiveSkills(game) {
   const mercs = game.mercenaries || [];

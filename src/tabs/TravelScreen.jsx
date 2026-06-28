@@ -9,6 +9,9 @@ import { TECH_LEVELS, GOV_TYPES, SIZES } from '../constants/world.js';
 import { generatePirateShip } from '../engine/combat.js';
 import GalaxyMap from '../components/GalaxyMap.jsx';
 import QuestPopup from '../components/QuestPopup.jsx';
+import { SHIPS, WEAPONS } from '../constants/ships.js';
+import { rnd } from '../engine/utils.js';
+import { refreshMarket } from '../engine/market.js';
 
 function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelected }) {
   const [selected, setSelected] = useState(initialSelected ?? null);

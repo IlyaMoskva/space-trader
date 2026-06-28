@@ -1,5 +1,6 @@
 import { COMMODITIES } from '../constants/commodities.js';
 import { rnd, pick } from './utils.js';
+import { SHIPS, WEAPONS } from '../constants/ships.js';
 
 function generateQuests(systems) {
   const quests = [];

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { COMMODITIES } from '../constants/commodities.js';
 import { getMarketPrices } from '../engine/market.js';
 import { effectiveSkills } from '../engine/combat.js';
+import { GOV_TYPES, TECH_LEVELS, SIZES, GOV_CATEGORY_MOD } from '../constants/world.js';
+import { initMarket, getCommodityCategory, priceFromStock } from '../engine/market.js';
 
 function TradeScreen({ game, onUpdate }) {
   const sys = game.galaxy[game.currentSystem];

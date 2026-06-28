@@ -3,6 +3,7 @@ import { SHIPS } from '../constants/ships.js';
 import { effectiveSkills } from '../engine/combat.js';
 import ShipSprite from './ShipSprite.jsx';
 import SkillBar from './SkillBar.jsx';
+import { SHIELDS } from '../constants/ships.js';
 
 function StatusBar({ game, onMenu }) {
   const sys = game.galaxy[game.currentSystem];
