@@ -271,7 +271,7 @@ function ShipScreen({ game, onUpdate }) {
             </div>
           ))}
           <hr className="divider" />
-          {WEAPONS.filter(w => sys.tech >= w.minTech && !game.weapons.some(x => x.id === w.id)).map(w => {
+          {WEAPONS.filter(w => sys.tech >= w.minTech).map(w => {
             const slotFree = game.weapons.length < game.ship.slots_w;
             const canBuy = game.credits >= w.price && slotFree;
             return (
@@ -318,7 +318,7 @@ function ShipScreen({ game, onUpdate }) {
             </div>
           ))}
           <hr className="divider" />
-          {SHIELDS.filter(s => sys.tech >= s.minTech && !game.shields.some(x => x.id === s.id)).map(s => {
+          {SHIELDS.filter(s => sys.tech >= s.minTech).map(s => {
             const canBuy = game.credits >= s.price && game.shields.length < game.ship.slots_s;
             return (
               <div key={s.id} className="stat-row">
