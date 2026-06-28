@@ -268,6 +268,13 @@ test("Flea and Gnat have 0 crew quarters", () => {
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────
+// ── UI smoke checks ───────────────────────────────────────────────────────────
+const travelSrc = fs.readFileSync(path.join(__dirname, "src/tabs/TravelScreen.jsx"), "utf8");
+test("TravelScreen shows Population field", () => {
+  assert(travelSrc.includes("Population"), "Population row missing from TravelScreen");
+  assert(travelSrc.includes("SIZES[selectedSys.size]"), "SIZES lookup missing");
+});
+
 console.log("\n" + "─".repeat(40));
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) {

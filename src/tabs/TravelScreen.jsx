@@ -203,7 +203,18 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
     // Boss fight from quest takes priority
     const bossPopup = popups.find(p => p.encounter);
     if (bossPopup) {
-      onEncounter(newGame, bossPopup.encounter);
+      const raw = bossPopup.encounter;
+      const bossEnc = {
+        type: "pirate",
+        sub: raw.sub || "dragonfly",
+        ship: raw.ship,
+        weapon: raw.weapon || WEAPONS[2],
+        hull: raw.hull, hullMax: raw.hullMax,
+        shields: raw.shields, shieldsMax: raw.shieldsMax,
+        wave: 1, maxWaves: 1,
+      };
+      newGame.log = [{ type: "bad", text: "🐉 DRAGONFLY spotted! It's turning to engage!" }, ...newGame.log];
+      onEncounter(newGame, bossEnc);
       return;
     }
 
@@ -228,6 +239,7 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
             <div className="stat-row"><span className="stat-label">Destination</span><span className="stat-val-blue">{selectedSys.name}</span></div>
             <div className="stat-row"><span className="stat-label">Tech Level</span><span className="stat-val">{TECH_LEVELS[selectedSys.tech]}</span></div>
             <div className="stat-row"><span className="stat-label">Government</span><span className="stat-val">{GOV_TYPES[selectedSys.gov]}</span></div>
+            <div className="stat-row"><span className="stat-label">Population</span><span className="stat-val">{SIZES[selectedSys.size]}</span></div>
             <div className="stat-row">
               <span className="stat-label">Distance</span>
               <span className={inRange ? "stat-val-green" : "stat-val-red"}>
