@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { SHIPS, WEAPONS, SHIELDS, GADGETS } from '../constants/ships.js';
 import { effectiveSkills } from '../engine/combat.js';
 import { distParsecs } from '../engine/utils.js';
+import { isServiceBanned } from '../engine/utils.js';
 import { TECH_LEVELS, GOV_TYPES, SIZES } from '../constants/world.js';
 import ShipSprite from '../components/ShipSprite.jsx';
 import SkillBar from '../components/SkillBar.jsx';
@@ -34,28 +35,27 @@ function ShipScreen({ game, onUpdate }) {
     onUpdate({ ...game, credits: game.credits - g.price, gadgets: [...game.gadgets, { ...g }], ...extra,
       log: [{ type: "good", text: "Installed " + g.name }, ...game.log] });
   };
-  const repairHull = () => {
+  const repairHull = (mult = 1) => {
     const needed = game.hullMax - game.hull;
-    const engineerDiscount = 1 - (game.skills.engineer || 0) * 0.05;
-    const costPerHp = Math.max(1, Math.round(2 * engineerDiscount));
+    const engineerDiscount = banned ? 1 : 1 - (game.skills.engineer || 0) * 0.05;
+    const costPerHp = Math.max(1, Math.round(2 * engineerDiscount * mult));
     const cost = needed * costPerHp;
     if (game.credits < cost || needed === 0) return;
     onUpdate({ ...game, hull: game.hullMax, credits: game.credits - cost,
-      log: [{ type: "good", text: "Hull repaired for " + cost + " cr" + (game.skills.engineer > 0 ? " (Eng discount)" : "") }, ...game.log] });
+      log: [{ type: "good", text: "Hull repaired for " + cost + " cr" + (game.skills.engineer > 0 && !banned ? " (Eng discount)" : "") + (banned ? " (hostile port ×3)" : "") }, ...game.log] });
   };
 
-  const repairShields = () => {
+  const repairShields = (mult = 1) => {
     const damaged = game.shields.filter(s => s.current < s.max);
     if (!damaged.length) return;
-    // Shield repair: 1 cr per strength point restored, Engineer discount applies
-    const engineerDiscount = 1 - (game.skills.engineer || 0) * 0.05;
+    const engineerDiscount = banned ? 1 : 1 - (game.skills.engineer || 0) * 0.05;
     const totalNeeded = damaged.reduce((sum, s) => sum + (s.max - s.current), 0);
-    const cost = Math.max(1, Math.round(totalNeeded * engineerDiscount));
+    const cost = Math.max(1, Math.round(totalNeeded * engineerDiscount * mult));
     if (game.credits < cost) return;
     onUpdate({ ...game,
       shields: game.shields.map(s => ({ ...s, current: s.max })),
       credits: game.credits - cost,
-      log: [{ type: "good", text: "Shields recharged for " + cost + " cr" }, ...game.log],
+      log: [{ type: "good", text: "Shields recharged for " + cost + " cr" + (banned ? " (hostile port ×3)" : "") }, ...game.log],
     });
   };
   const buyShip = (s) => {
@@ -111,6 +111,13 @@ function ShipScreen({ game, onUpdate }) {
 
   const canRepair = game.hull < game.hullMax && sys.tech >= 2;
   const canRepairShields = game.shields.some(s => s.current < s.max) && sys.tech >= 2;
+  const banned = isServiceBanned(sys, game.reputation || 0);
+  const bannedMsg = (
+    <div style={{ padding: 12, color: "#ff6b35", fontSize: 15 }}>
+      ⛔ Services denied — {GOV_TYPES[sys.gov]} government refuses to serve criminals.
+      <div style={{ fontSize: 13, color: "#555566", marginTop: 6 }}>Improve your reputation or find a less principled port.</div>
+    </div>
+  );
 
   return (
     <div>
@@ -141,6 +148,12 @@ function ShipScreen({ game, onUpdate }) {
           {(game.specialItems || []).length > 0 && (
             <div style={{ marginTop: 12 }}>
               <div className="panel-title">Special Items</div>
+              {(game.specialItems || []).includes("fuel_compressor") && (
+                <div className="stat-row">
+                  <span className="stat-label">⛽ Fuel Compressor</span>
+                  <span className="stat-val" style={{ color: "#00ff88" }}>Jump range +3 pc</span>
+                </div>
+              )}
               {(game.specialItems || []).includes("singularity") && (
                 <SingularityItem game={game} onUpdate={onUpdate} />
               )}
@@ -176,25 +189,30 @@ function ShipScreen({ game, onUpdate }) {
             const noShipyard = sys.tech < 2;
             const hullFull = game.hull >= game.hullMax;
             const shieldsFull = !game.shields.some(s => s.current < s.max);
+            const canRepairNow = !noShipyard;
+            const bannedMultiplier = banned ? 3 : 1;
+            const hullCostFinal = hullCost * bannedMultiplier;
+            const shieldCostFinal = shieldCost * bannedMultiplier;
             const hint = noShipyard ? "Requires tech level 2+ shipyard"
+              : banned ? GOV_TYPES[sys.gov] + " charges 3× — they won't let you die, but won't make it easy"
               : null;
             return (
               <div style={{ marginTop: 10 }}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button
-                    className={"btn " + (!noShipyard && !hullFull ? "btn-green" : "btn-disabled")}
+                    className={"btn " + (canRepairNow && !hullFull ? "btn-green" : "btn-disabled")}
                     style={{ fontSize: 15, flex: 1 }}
-                    onClick={!noShipyard && !hullFull ? repairHull : undefined}>
-                    {hullFull ? "HULL OK" : "REPAIR HULL" + (!noShipyard ? " (" + hullCost + " cr" + (game.skills.engineer > 0 ? " · Eng" : "") + ")" : "")}
+                    onClick={canRepairNow && !hullFull ? () => repairHull(bannedMultiplier) : undefined}>
+                    {hullFull ? "HULL OK" : "REPAIR HULL" + (canRepairNow ? " (" + hullCostFinal + " cr" + (game.skills.engineer > 0 && !banned ? " · Eng" : "") + (banned ? " ×3" : "") + ")" : "")}
                   </button>
                   <button
-                    className={"btn " + (!noShipyard && !shieldsFull && game.shields.length > 0 ? "btn-blue" : "btn-disabled")}
+                    className={"btn " + (canRepairNow && !shieldsFull && game.shields.length > 0 ? "btn-blue" : "btn-disabled")}
                     style={{ fontSize: 15, flex: 1 }}
-                    onClick={!noShipyard && !shieldsFull && game.shields.length > 0 ? repairShields : undefined}>
-                    {game.shields.length === 0 ? "NO SHIELDS" : shieldsFull ? "SHIELDS OK" : "RECHARGE SHIELDS" + (!noShipyard ? " (" + shieldCost + " cr)" : "")}
+                    onClick={canRepairNow && !shieldsFull && game.shields.length > 0 ? () => repairShields(bannedMultiplier) : undefined}>
+                    {game.shields.length === 0 ? "NO SHIELDS" : shieldsFull ? "SHIELDS OK" : "RECHARGE SHIELDS" + (canRepairNow ? " (" + shieldCostFinal + " cr" + (banned ? " ×3" : "") + ")" : "")}
                   </button>
                 </div>
-                {hint && <div style={{ fontSize: 13, color: "#555566", marginTop: 5 }}>⚠ {hint}</div>}
+                {hint && <div style={{ fontSize: 13, color: banned ? "#ffd700" : "#555566", marginTop: 5 }}>⚠ {hint}</div>}
               </div>
             );
           })()}
@@ -251,6 +269,7 @@ function ShipScreen({ game, onUpdate }) {
       )}
       {tab === "weapons" && (
         <div className="panel">
+          {banned ? bannedMsg : (<>
           <div className="panel-title">Weapons ({game.weapons.length}/{game.ship.slots_w} slots)</div>
           {game.weapons.length === 0 && <div style={{ fontSize: 15, color: "#555588", marginBottom: 8 }}>No weapons installed</div>}
           {game.weapons.map((w, i) => (
@@ -289,10 +308,12 @@ function ShipScreen({ game, onUpdate }) {
               Slots full — sell a weapon to replace it
             </div>
           )}
+          </>)}
         </div>
       )}
       {tab === "shields" && (
         <div className="panel">
+          {banned ? bannedMsg : (<>
           <div className="panel-title">Shields ({game.shields.length}/{game.ship.slots_s} slots)</div>
           {game.shields.map((s, i) => (
             <div key={i} className="stat-row">
@@ -335,10 +356,12 @@ function ShipScreen({ game, onUpdate }) {
               Slots full — sell a shield to replace it
             </div>
           )}
+          </>)}
         </div>
       )}
       {tab === "gadgets" && (
         <div className="panel">
+          {banned ? bannedMsg : (<>
           <div className="panel-title">Gadgets ({game.gadgets.length}/{game.ship.slots_g} slots)</div>
           {GADGETS.map(g => {
             const owned = game.gadgets.some(x => x.id === g.id);
@@ -352,10 +375,12 @@ function ShipScreen({ game, onUpdate }) {
               </div>
             );
           })}
+          </>)}
         </div>
       )}
       {tab === "ships" && (
         <div className="panel">
+          {banned ? bannedMsg : (<>
           <div className="panel-title">Shipyard</div>
           {SHIPS.map(s => {
             const tradeVal = Math.floor((SHIPS.find(x => x.id === game.ship.id)?.price || 0) * 0.7);
@@ -380,6 +405,7 @@ function ShipScreen({ game, onUpdate }) {
               </div>
             );
           })}
+          </>)}
         </div>
       )}
     </div>

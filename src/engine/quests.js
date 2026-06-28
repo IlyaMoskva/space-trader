@@ -61,7 +61,7 @@ function checkQuestArrival(game, arrivedSystemId) {
 
     // Quest-specific completion logic
     if (q.id === "alien_invasion") {
-      newGame.gadgets = [...(newGame.gadgets || []), { id: "fuel_compressor", name: "Fuel Compressor", desc: "+3 jump range" }];
+      newGame.specialItems = [...(newGame.specialItems || []), "fuel_compressor"];
       newGame.log = [{ type: "good", text: "Alien Invasion: PLANET SAVED! Reward: Fuel Compressor." }, ...newGame.log];
       popups.push({ title: "👾 ALIENS REPELLED!", body: "You arrived in time. The planetary defense forces scramble at your warning. The alien fleet retreats.\n\nReward: Fuel Compressor installed — jump range +3 parsecs.", color: "#00ff88" });
       return { ...q, status: "done" };

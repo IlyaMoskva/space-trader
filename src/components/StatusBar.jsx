@@ -42,18 +42,28 @@ function StatusBar({ game, onMenu }) {
         const repLabel = rep >= 7 ? "LEGEND" : rep >= 4 ? "RESPECTED" : rep >= 1 ? "NEUTRAL+" :
           rep === 0 ? "NEUTRAL" : rep >= -3 ? "SUSPECT" : rep >= -6 ? "WANTED" : "PIRATE";
         const repColor = rep >= 4 ? "#00ff88" : rep >= 0 ? "#8888bb" : rep >= -3 ? "#ffd700" : rep >= -6 ? "#ff6b35" : "#ff4444";
-        const bars = Math.round((rep + 10) / 2); // 0-10 bars out of 10
+        const bars = Math.round((rep + 10) / 2);
+        const killed = game.killed || 0;
+        const killedCivilian = game.killedCivilian || 0;
+        const killedPolice = game.killedPolice || 0;
         return (
-          <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ fontSize: 13, color: "#555588", width: 56 }}>REP</div>
-            <div style={{ display: "flex", gap: 2 }}>
-              {Array.from({length: 10}).map((_, i) => (
-                <div key={i} style={{ width: 12, height: 8, borderRadius: 1,
-                  background: i < bars ? repColor : "#1a1a3a", border: "1px solid #2a2a4a" }}/>
-              ))}
+          <div style={{ marginTop: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ fontSize: 13, color: "#555588", width: 56 }}>REP</div>
+              <div style={{ display: "flex", gap: 2 }}>
+                {Array.from({length: 10}).map((_, i) => (
+                  <div key={i} style={{ width: 12, height: 8, borderRadius: 1,
+                    background: i < bars ? repColor : "#1a1a3a", border: "1px solid #2a2a4a" }}/>
+                ))}
+              </div>
+              <div style={{ fontSize: 13, color: repColor }}>{repLabel}</div>
+              {rep <= -5 && <div style={{ fontSize: 12, color: "#ff4444" }}>⚠ HUNTED</div>}
             </div>
-            <div style={{ fontSize: 13, color: repColor }}>{repLabel}</div>
-            {rep <= -5 && <div style={{ fontSize: 12, color: "#ff4444" }}>⚠ HUNTED</div>}
+            <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 12, color: "#555566" }}>
+              <span title="Pirates destroyed">⚔ {killed}</span>
+              {killedCivilian > 0 && <span title="Civilians attacked" style={{ color: "#ff6b35" }}>💀 {killedCivilian}</span>}
+              {killedPolice > 0 && <span title="Police destroyed" style={{ color: "#ff4444" }}>🚔 {killedPolice}</span>}
+            </div>
           </div>
         );
       })()}

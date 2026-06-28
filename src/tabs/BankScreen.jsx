@@ -64,14 +64,27 @@ function BankScreen({ game, onUpdate }) {
       )}
       {(game.reputation || 0) <= -3 && (() => {
         const rep = game.reputation || 0;
-        const clearCost = Math.abs(rep) * 1000;
-        const newRep = Math.min(-1, rep + 3);
+        const kills = (game.killedCivilian || 0) + (game.killedPolice || 0);
+        // Fines don't work for murderers — blood money stays on record
+        if (kills > 0) return (
+          <div style={{ marginTop: 14, border: "1px solid #ff4444", borderRadius: 4, padding: 10 }}>
+            <div style={{ fontSize: 15, color: "#ff4444", marginBottom: 6 }}>⚠ Criminal Record — Rep {rep}</div>
+            <div style={{ fontSize: 14, color: "#555566" }}>
+              You have {kills} kill{kills > 1 ? "s" : ""} on record. Fines cannot clear a murder charge.
+              Rebuild reputation through deeds or find a Shadow Broker.
+            </div>
+          </div>
+        );
+        // Cost: 5000 per rep point below -2 (not -3 threshold), minimum 5000
+        const clearCost = Math.max(5000, Math.abs(rep + 2) * 5000);
+        // Only clears 1 point — expensive and slow
+        const newRep = rep + 1;
         const canClear = game.credits >= clearCost;
         return (
           <div style={{ marginTop: 14, border: "1px solid #ff6b35", borderRadius: 4, padding: 10 }}>
             <div style={{ fontSize: 15, color: "#ff6b35", marginBottom: 6 }}>⚠ Criminal Record — Rep {rep}</div>
             <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 8 }}>
-              Pay {clearCost.toLocaleString()} cr to clear part of your record → Rep {newRep}
+              Pay legal fees to clear one charge → Rep {newRep}
               {rep <= -7 && <span style={{ color: "#ff4444" }}> · Bounty hunters are active</span>}
             </div>
             <button className={"btn " + (canClear ? "btn-gold" : "btn-disabled")}
@@ -80,10 +93,10 @@ function BankScreen({ game, onUpdate }) {
                 onUpdate({ ...game,
                   credits: game.credits - clearCost,
                   reputation: newRep,
-                  log: [{ type: "good", text: "Paid " + clearCost + " cr to clear criminal record. Rep: " + newRep }, ...game.log],
+                  log: [{ type: "good", text: "Legal fees paid: " + clearCost.toLocaleString() + " cr. Rep: " + rep + " → " + newRep }, ...game.log],
                 });
               }}>
-              PAY FINE ({clearCost.toLocaleString()} cr)
+              PAY LEGAL FEES ({clearCost.toLocaleString()} cr → Rep {newRep})
             </button>
           </div>
         );

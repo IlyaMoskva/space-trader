@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef } from "react";
 import { doCombatRound, generatePirateShip } from "../engine/combat.js";
 import { effectiveSkills } from "../engine/combat.js";
-import { onPirateKilled } from "../engine/contracts.js";
-import { SHIPS } from "../constants/ships.js";
+import { onPirateKilled, onPirateJobKill } from "../engine/contracts.js";
+import { SHIPS, WEAPONS } from "../constants/ships.js";
+import { rnd } from "../engine/utils.js";
 import { rnd } from "../engine/utils.js";
 
 export function useCombat({ game, encounter, onUpdate, onDone }) {
@@ -55,7 +56,21 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             finalGame.reputation = (finalGame.reputation || 0) + 3;
             finalGame.activeContracts = finalGame.activeContracts.map(c =>
               c.id === encounter.contractId ? { ...c, status: "done" } : c);
-            finalGame.log = [{ type: "good", text: contract.targetName + " eliminated! Reward: " + contract.reward.toLocaleString() + " cr" }, ...finalGame.log];
+            // High-value gov contract expunges up to 2 kills from record
+            const totalKills = (finalGame.killedCivilian || 0) + (finalGame.killedPolice || 0);
+            if (totalKills > 0) {
+              const expunge = Math.min(2, totalKills);
+              let kc = finalGame.killedCivilian || 0;
+              let kp = finalGame.killedPolice || 0;
+              for (let i = 0; i < expunge; i++) {
+                if (kp > 0) kp--; else kc--;
+              }
+              finalGame.killedCivilian = kc;
+              finalGame.killedPolice = kp;
+              finalGame.log = [{ type: "good", text: contract.targetName + " eliminated! Reward: " + contract.reward.toLocaleString() + " cr · Gov expunged " + expunge + " kill(s) from record" }, ...finalGame.log];
+            } else {
+              finalGame.log = [{ type: "good", text: contract.targetName + " eliminated! Reward: " + contract.reward.toLocaleString() + " cr" }, ...finalGame.log];
+            }
           }
         } else if (encounter.sub === "dragonfly") {
           const ls = { id: "lightning", name: "Lightning Shield", strength: 350, max: 350, current: 350, price: 80000 };
@@ -67,14 +82,35 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             finalGame.log = [{ type: "good", text: "DRAGONFLY destroyed! Lightning Shield salvaged — check SHIP → STATUS." }, ...finalGame.log];
           }
           finalGame.quests = finalGame.quests.map(q => q.id === "dragonfly" ? { ...q, status: "done" } : q);
+        } else if (encounter.sub === "civilian") {
+          // Killed a merchant — no bounty, rep -2, killedCivilian++
+          const shipIdx = Math.max(0, SHIPS.findIndex(s => s.id === encounter?.ship?.id));
+          const stolen = encounter.sellGoods?.slice(0, rnd(1, 3)).map(g => ({
+            id: g.id, qty: rnd(1, 3), buyPrice: 0
+          })) || [];
+          finalGame.cargo = [...(finalGame.cargo || []), ...stolen];
+          finalGame.killedCivilian = (finalGame.killedCivilian || 0) + 1;
+          finalGame.reputation = Math.max(-10, (finalGame.reputation || 0) - 2);
+          finalGame.policeRecord = (finalGame.policeRecord || 0) + 1;
+          finalGame = onPirateJobKill(finalGame, "civilian");
+          finalGame.log = [{ type: "bad", text: "Destroyed " + (encounter?.ship?.name || "merchant") + "! Looted cargo. Rep −2." }, ...finalGame.log];
         } else {
-          // Regular pirate
+          // Regular pirate or hostile police
+          const isPolice = encounter.sub === "hostile" || encounter.sub === "bounty_hunter";
           const shipIdx = Math.max(0, SHIPS.findIndex(s => s.id === encounter?.ship?.id));
           const bounty = Math.round((300 + shipIdx * 200 + rnd(0, 300)) / 50) * 50;
           finalGame.credits += bounty;
-          finalGame.killed = (finalGame.killed || 0) + 1;
-          finalGame = onPirateKilled(finalGame);
-          finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
+          if (isPolice) {
+            finalGame.killedPolice = (finalGame.killedPolice || 0) + 1;
+            finalGame.reputation = Math.max(-10, (finalGame.reputation || 0) - 3);
+            finalGame.policeRecord = (finalGame.policeRecord || 0) + 2;
+            finalGame = onPirateJobKill(finalGame, "hostile");
+            finalGame.log = [{ type: "bad", text: "Destroyed " + (encounter?.ship?.name || "police ship") + "! Rep −3. Bounty: " + bounty + " cr" }, ...finalGame.log];
+          } else {
+            finalGame.killed = (finalGame.killed || 0) + 1;
+            finalGame = onPirateKilled(finalGame);
+            finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
+          }
 
           // Combat skill gain
           const eff = effectiveSkills(finalGame);
@@ -97,14 +133,31 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             }
           }
 
-          // Wave attack
+          // Wave attack — pirate or police reinforcements
           const currentWave = encounter.wave || 1;
           const maxWaves = encounter.maxWaves || 1;
           if (currentWave < maxWaves) {
             const sys = finalGame.galaxy[finalGame.currentSystem];
-            const nextPirate = generatePirateShip(sys, finalGame);
-            const nextEnc = { ...nextPirate, type: "pirate", wave: currentWave + 1, maxWaves };
-            finalGame.log = [{ type: "bad", text: "Another pirate closes in! Wave " + (currentWave+1) + "/" + maxWaves }, ...finalGame.log];
+            const isPoliceWave = encounter.sub === "hostile" || encounter.sub === "bounty_hunter";
+            let nextEnc;
+            if (isPoliceWave) {
+              const killedPolice = finalGame.killedPolice || 0;
+              const tier = Math.min(3, Math.floor(killedPolice / 1));
+              const nextShip = SHIPS[Math.min(SHIPS.length-1, 3 + tier)];
+              nextEnc = {
+                type: "police", sub: "hostile",
+                ship: nextShip, weapon: WEAPONS[Math.min(2, tier)],
+                hull: nextShip.hull, hullMax: nextShip.hull,
+                shields: 100 + tier * 50, shieldsMax: 100 + tier * 50,
+                wave: currentWave + 1, maxWaves,
+              };
+              finalGame.log = [{ type: "bad", text: "Police reinforcements! Wave " + (currentWave+1) + "/" + maxWaves }, ...finalGame.log];
+            } else {
+              const nextPirate = generatePirateShip(sys, finalGame);
+              nextEnc = { ...nextPirate, type: "pirate", sub: encounter.sub,
+                wave: currentWave + 1, maxWaves };
+              finalGame.log = [{ type: "bad", text: "Another pirate closes in! Wave " + (currentWave+1) + "/" + maxWaves }, ...finalGame.log];
+            }
             onUpdate(finalGame);
             setTimeout(() => {
               setPhase("choice");

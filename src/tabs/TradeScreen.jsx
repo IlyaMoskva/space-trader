@@ -4,6 +4,7 @@ import { getMarketPrices } from '../engine/market.js';
 import { effectiveSkills } from '../engine/combat.js';
 import { GOV_TYPES, TECH_LEVELS, SIZES, GOV_CATEGORY_MOD } from '../constants/world.js';
 import { initMarket, getCommodityCategory, priceFromStock } from '../engine/market.js';
+import { isServiceBanned } from '../engine/utils.js';
 
 function TradeScreen({ game, onUpdate }) {
   const sys = game.galaxy[game.currentSystem];
@@ -54,12 +55,28 @@ function TradeScreen({ game, onUpdate }) {
       { type: "good", text: "Bought 1x " + com.name + " @ " + price + " cr" });
   };
 
+  const crisisGoods = new Set(
+    (market.events || []).flatMap(e =>
+      ({plague:["medicine"], drought:["food","water"], war:["food","medicine","machines"], coldwinter:["food","medicine"]})[e.id] || []
+    )
+  );
+
   const sell = (id) => {
     const held = getCargoQty(id);
     if (held <= 0) return;
     const m = market[id];
     const com = COMMODITIES.find(c => c.id === id);
     const events = market.events || [];
+
+    // Banned port: can dump cargo (price=0) to free space; crisis goods sold normally
+    if (banned && !crisisGoods.has(id)) {
+      const newCargo = game.cargo.map(c =>
+        c.id === id ? { ...c, qty: c.qty - 1 } : c
+      ).filter(c => c.qty > 0);
+      onUpdate({ ...game, cargo: newCargo,
+        log: [{ type: "warn", text: "Dumped 1x " + com.name + " (port refused purchase)" }, ...game.log] });
+      return;
+    }
 
     let sellPrice, belowMarket;
     if (m && m.basePrice && m.baseStock > 0) {
@@ -140,6 +157,8 @@ function TradeScreen({ game, onUpdate }) {
     return { symbol: "─", color: "#555588", event: false };
   };
 
+  const banned = isServiceBanned(sys, game.reputation || 0);
+
   return (
     <div>
       <div className="panel">
@@ -147,6 +166,11 @@ function TradeScreen({ game, onUpdate }) {
           {sys.name} · {TECH_LEVELS[sys.tech]} · {GOV_TYPES[sys.gov]} · Pop {SIZES[sys.size]}
           <span className="badge badge-gold" style={{ marginLeft: 8 }}>Cargo {cargoUsed}/{game.cargoCapacity}</span>
         </div>
+        {banned && (
+          <div style={{ padding: "8px 0", color: "#ff6b35", fontSize: 14 }}>
+            ⛔ Market closed — {GOV_TYPES[sys.gov]} government refuses to trade with criminals. Improve your reputation.
+          </div>
+        )}
         <div className="commodity-row header" style={{ gridTemplateColumns: "1fr 65px 38px 38px 50px 28px 28px" }}>
           <div>COMMODITY</div><div>PRICE</div><div>STOCK</div><div>HOLD</div><div>P/L</div><div></div><div></div>
         </div>
@@ -156,8 +180,8 @@ function TradeScreen({ game, onUpdate }) {
           const held = getCargoQty(com.id);
           const stock = m?.stock ?? 0;
           const trend = priceTrend(com.id);
-          const canBuy = price && game.credits >= price && cargoFree > 0 && stock > 0;
-          const canSell = held > 0;
+          const canBuy = !banned && price && game.credits >= price && cargoFree > 0 && stock > 0;
+          const canSell = !banned && held > 0;
 
           const govMod = GOV_CATEGORY_MOD[sys.gov] || GOV_CATEGORY_MOD[5];
           const cat = getCommodityCategory(com.id);
@@ -193,8 +217,11 @@ function TradeScreen({ game, onUpdate }) {
                 style={canBuy ? { borderColor: "#00ff88", color: "#00ff88" } : { opacity: 0.3 }}
                 onClick={() => buy(com.id)}>B</button>
               <button className="qty-btn"
-                style={canSell ? { borderColor: "#ff6b35", color: "#ff6b35" } : { opacity: 0.3 }}
-                onClick={() => sell(com.id)}>S</button>
+                style={held > 0 ? (banned && !crisisGoods.has(com.id) ? { borderColor: "#555588", color: "#888888" } : { borderColor: "#ff6b35", color: "#ff6b35" }) : { opacity: 0.3 }}
+                title={banned && !crisisGoods.has(com.id) ? "Dump cargo (port refuses purchase)" : "Sell"}
+                onClick={() => sell(com.id)}>
+                {banned && !crisisGoods.has(com.id) && held > 0 ? "D" : "S"}
+              </button>
             </div>
           );
         })}

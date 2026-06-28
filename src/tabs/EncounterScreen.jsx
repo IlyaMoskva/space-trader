@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SHIPS } from '../constants/ships.js';
+import { SHIPS, WEAPONS } from '../constants/ships.js';
 import { COMMODITIES } from '../constants/commodities.js';
 import { rnd } from '../engine/utils.js';
 import { effectiveSkills, generatePirateShip } from '../engine/combat.js';
@@ -113,17 +113,25 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
               <button className="btn btn-red" onClick={() => fightRound("fight")}>⚔ FIGHT</button>
               <button className="btn btn-blue" onClick={flee}>↗ FLEE</button>
               <button className="btn btn-gray" onClick={() => {
-                // Surrender to police: arrested, pay fine, lose days
                 const rep = game.reputation || 0;
-                const fine = Math.max(500, Math.abs(rep) * 500);
-                const jailDays = Math.max(2, Math.abs(rep));
-                const hasEscapePod = game.gadgets.some(g => g.id === "escape_pod");
+                const fine = Math.max(500, Math.abs(rep) * 800);
+                const kills = (game.killedCivilian || 0) + (game.killedPolice || 0);
+                // Murderers serve longer: +5 days per kill
+                const jailDays = Math.max(2, Math.abs(rep) * 2) + kills * 5;
+                // After prison: SUSPECT (-2), killers stay worse
+                const newRep = kills > 0 ? Math.min(-3, rep + 2) : Math.min(-1, rep + 2);
+                // Serving time reduces kill count by 1 — "paid your debt"
+                const newKilledCivilian = Math.max(0, (game.killedCivilian || 0) - (kills > 0 ? 1 : 0));
+                const newKilledPolice   = newKilledCivilian === (game.killedCivilian || 0)
+                  ? Math.max(0, (game.killedPolice || 0) - 1) : (game.killedPolice || 0);
                 onUpdate({ ...game,
                   credits: Math.max(0, game.credits - fine),
                   days: game.days + jailDays,
-                  reputation: Math.min(0, rep + 3),
+                  reputation: newRep,
+                  killedCivilian: newKilledCivilian,
+                  killedPolice: newKilledPolice,
                   policeRecord: (game.policeRecord || 0) + 1,
-                  log: [{ type: "bad", text: "Arrested! Fine: " + fine + " cr · " + jailDays + " days in custody · Rep +3" }, ...game.log],
+                  log: [{ type: "bad", text: "Arrested! Fine: " + fine.toLocaleString() + " cr · " + jailDays + " days" + (kills > 0 ? " (murder sentence)" : "") + " · Rep → " + newRep }, ...game.log],
                 });
                 onDone();
               }}>🏳 SURRENDER</button>
@@ -152,7 +160,30 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
             <button className="btn btn-gray" onClick={flee}>FLEE</button>
           </div>
         ) : (
-          <button className="btn btn-blue" onClick={() => onDone()}>ACKNOWLEDGED</button>
+          <button className="btn btn-blue" onClick={() => {
+            const rep = game.reputation || 0;
+            if (rep < 0) {
+              // Accumulate clean checks — each one has increasing chance of rep +1
+              // cleanChecks resets when rep improves
+              const cleanChecks = (game.cleanChecks || 0) + 1;
+              // Chance = cleanChecks × 15%, max 60%
+              const chance = Math.min(0.60, cleanChecks * 0.15);
+              if (Math.random() < chance) {
+                onUpdate({ ...game,
+                  reputation: Math.min(0, rep + 1),
+                  cleanChecks: 0, // reset counter after rep gain
+                  log: [{ type: "good", text: "Clean record noted by patrol. Rep +1 (" + Math.min(0, rep+1) + ")" }, ...game.log],
+                });
+              } else {
+                onUpdate({ ...game, cleanChecks,
+                  log: [{ type: "info", text: "Clean inspection #" + cleanChecks + ". Keep it up." }, ...game.log],
+                });
+              }
+            } else {
+              onDone();
+            }
+            onDone();
+          }}>ACKNOWLEDGED</button>
         )}
       </div>
     );
@@ -249,26 +280,19 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
 
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           <button className="btn btn-gray" onClick={() => onDone()}>DEPART</button>
-          {(game.reputation || 0) <= -3 && (
-            <button className="btn btn-red" onClick={() => {
-              // Attack the merchant — steal cargo, lose reputation
-              const merchantShip = encounter.merchantShip || SHIPS[2];
-              const stolen = encounter.sellGoods?.slice(0, rnd(1, 3)).map(g => ({
-                id: g.id, qty: rnd(1, 3), buyPrice: 0
-              })) || [];
-              const newCargo = [...game.cargo, ...stolen].filter(c => c.qty > 0);
-              const repLoss = -2;
-              onUpdate({ ...game,
-                cargo: newCargo,
-                reputation: Math.max(-10, (game.reputation || 0) + repLoss),
-                policeRecord: (game.policeRecord || 0) + 1,
-                log: [{ type: "bad", text: "Attacked merchant! Seized cargo. Reputation −2." }, ...game.log],
-              });
-              onDone();
-            }}>
-              ⚔ ATTACK (rep −2)
-            </button>
-          )}
+          <button className="btn btn-red" onClick={() => {
+            // Start actual combat with the merchant ship
+            const ms = encounter.merchantShip || SHIPS[2];
+            onUpdate({ ...game,
+              reputation: Math.max(-10, (game.reputation || 0) - 1),
+              log: [{ type: "bad", text: "You open fire on the merchant! Rep −1." }, ...game.log],
+            });
+            // Re-trigger as pirate-style combat
+            onDone({ ...encounter, type: "pirate", sub: "civilian",
+              ship: ms, weapon: encounter.weapon || WEAPONS[0],
+              hull: encounter.hull || ms.hull, hullMax: encounter.hullMax || ms.hull,
+              shields: 0, shieldsMax: 0, wave: 1, maxWaves: 1 });
+          }}>⚔ ATTACK (rep −1)</button>
         </div>
       </div>
     );
@@ -339,17 +363,31 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
         ]
       },
       mercenary_offer: (() => {
-        const merc = pick(MERCENARY_POOL.filter(m => !(game.mercenaries || []).find(x => x.id === m.id)));
+        const merc = pick(MERCENARY_POOL.filter(m =>
+          !(game.mercenaries || []).find(x => x.id === m.id)
+        ));
         if (!merc) return {
-          title: "🤝 MERCENARY",
-          desc: "A spacer offers their services, but your crew is full.",
+          title: "🛸 PASSING SHIP",
+          desc: "A trader hails you briefly. Nothing useful to report.",
           options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-gray" }]
         };
-        const full = (game.mercenaries || []).length >= (game.ship.slots_c ?? 0);
+        // Find a random system where this merc could appear
+        const targetSys = pick(game.galaxy.filter(s => s.id !== game.currentSystem));
+        const skillStr = "P:" + merc.skills.pilot + " F:" + merc.skills.fighter +
+          " T:" + merc.skills.trader + " E:" + merc.skills.engineer;
         return {
-          title: "🤝 MERCENARY: " + merc.name.toUpperCase(),
-          desc: merc.name + " seeks work. Check the Jobs board at any planet to hire crew.",
-          options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-blue" }]
+          title: "🛸 PASSING SHIP",
+          desc: "A pilot hails you. \"Heard a spacer named " + merc.name + " is looking for work out of " + targetSys.name + ". Good skills — " + skillStr + ". Might be worth a stop.\"",
+          options: [
+            { label: "THANKS FOR THE TIP", action: () => {
+              onUpdate({ ...game,
+                news: [{ text: merc.name + " (crew) available in " + targetSys.name + " · " + skillStr, event: false }, ...(game.news || [])].slice(0, 10),
+                log: [{ type: "info", text: "Tip: " + merc.name + " looking for work in " + targetSys.name }, ...game.log],
+              });
+              onDone();
+            }, cls: "btn-blue" },
+            { label: "NOT INTERESTED", action: () => onDone(), cls: "btn-gray" },
+          ]
         };
       })(),
       sealed_cargo: {
@@ -381,6 +419,115 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           { label: game.credits >= 500 ? "DECLINE" : "CAN'T AFFORD — DECLINE", action: () => onDone(), cls: "btn-gray" },
         ]
       },
+      record_wipe: (() => {
+        const rep = game.reputation || 0;
+        // Cost scales with how bad your record is: 2000 per rep point below 0
+        const cost = Math.abs(rep) * 2000;
+        // Wipe gives +3 rep, but never above -1 (can't buy full clean slate instantly)
+        const newRep = Math.min(-1, rep + 3);
+        const canAfford = game.credits >= cost;
+        return {
+          title: "🖥 SHADOW BROKER",
+          desc: "A hacker's ship drifts alongside, running on no transponder. An encrypted message: \"I've seen your file. It's... colorful. I can make some of it disappear. " + cost.toLocaleString() + " cr for a partial scrub — three points off the record. Interested?\"",
+          options: [
+            ...(canAfford ? [{
+              label: "PAY " + cost.toLocaleString() + " cr (Rep " + rep + " → " + newRep + ")",
+              action: () => {
+                const kills = (game.killedCivilian || 0) + (game.killedPolice || 0);
+                const newKilledCivilian = kills > 0 ? Math.max(0, (game.killedCivilian || 0) - 1) : (game.killedCivilian || 0);
+                const newKilledPolice   = newKilledCivilian === (game.killedCivilian || 0) && kills > 0
+                  ? Math.max(0, (game.killedPolice || 0) - 1) : (game.killedPolice || 0);
+                onUpdate({ ...game,
+                  credits: game.credits - cost,
+                  reputation: newRep,
+                  killedCivilian: newKilledCivilian,
+                  killedPolice: newKilledPolice,
+                  log: [{ type: "good", text: "Record partially wiped. Rep: " + rep + " → " + newRep + (kills > 0 ? " · 1 kill scrubbed from databases" : "") }, ...game.log],
+                });
+                onDone();
+              }, cls: "btn-gold"
+            }] : [{ label: "CAN'T AFFORD (" + cost.toLocaleString() + " cr)", action: () => onDone(), cls: "btn-gray" }]),
+            { label: "DECLINE", action: () => onDone(), cls: "btn-gray" },
+          ]
+        };
+      })(),
+      pirate_contract: (() => {
+        const rep = game.reputation || 0;
+        const targetSys = pick(game.galaxy.filter(s => s.id !== game.currentSystem));
+
+        // Job type depends on how bad reputation is
+        const jobType = rep <= -8
+          ? pick(["diplomat", "diplomat", "freighter"])  // worst: assassination missions
+          : rep <= -6
+          ? pick(["diplomat", "freighter", "patrol"])
+          : pick(["freighter", "patrol", "patrol"]);     // -4..-5: easier jobs
+
+        const JOBS = {
+          diplomat: {
+            title: "🔱 UNDERWORLD CONTRACT",
+            npc: "A cloaked vessel slides alongside. An encrypted channel opens.",
+            task: "A Flea-class diplomatic courier is en route to " + targetSys.name + ". The package it carries must not arrive. Intercept and destroy it — no witnesses.",
+            reward: { credits: rnd(8, 18) * 1000, item: pick(["military_laser", "energy_shield", null]) },
+            repCost: -4,
+            subType: "diplomat",
+          },
+          freighter: {
+            title: "💀 PIRATE JOB",
+            npc: "A scarred Hornet-class ship hails you on an unmarked frequency.",
+            task: "A merchant convoy is passing through " + targetSys.name + ". Destroy the lead freighter and take the cargo. We'll pay on delivery.",
+            reward: { credits: rnd(4, 10) * 1000, item: pick(["beam_laser", null, null]) },
+            repCost: -3,
+            subType: "freighter",
+          },
+          patrol: {
+            title: "🔫 DIRTY WORK",
+            npc: "Someone hails you on a pirate frequency. Voice distorted.",
+            task: "A police patrol in " + targetSys.name + " is getting too close to our operations. Eliminate them. Payment on completion — no questions asked.",
+            reward: { credits: rnd(5, 12) * 1000, item: null },
+            repCost: -3,
+            subType: "patrol",
+          },
+        };
+
+        const job = JOBS[jobType];
+        const rewardStr = job.reward.credits.toLocaleString() + " cr"
+          + (job.reward.item ? " + equipment" : "");
+
+        const acceptJob = () => {
+          const deadline = game.days + rnd(6, 12);
+          const newContract = {
+            id: "pirate_" + Date.now(),
+            type: "pirate_job",
+            subType: job.subType,
+            title: job.title.replace(/.*? /, "").slice(0, 30),
+            targetSystemId: targetSys.id,
+            targetSystemName: targetSys.name,
+            reward: job.reward.credits,
+            rewardItem: job.reward.item,
+            repCost: job.repCost,
+            deadline,
+            status: "active",
+            emoji: "💀",
+            killsCompleted: 0,
+            killCount: 1,
+          };
+          onUpdate({ ...game,
+            activeContracts: [...(game.activeContracts || []), newContract],
+            reputation: Math.max(-10, rep - 1), // accepting already costs rep
+            log: [{ type: "bad", text: "Took pirate contract: " + newContract.title + " in " + targetSys.name + " · deadline " + deadline + "d" }, ...game.log],
+          });
+          onDone();
+        };
+
+        return {
+          title: job.title,
+          desc: job.npc + "\n\n\"" + job.task + "\"\n\nReward: " + rewardStr + " · Rep " + job.repCost + " · " + rnd(6,12) + " days",
+          options: [
+            { label: "ACCEPT (" + rewardStr + ")", action: acceptJob, cls: "btn-red" },
+            { label: "REFUSE", action: () => onDone(), cls: "btn-gray" },
+          ]
+        };
+      })(),
     };
 
     const spec = specials[encounter.sub] || specials.sealed_cargo;

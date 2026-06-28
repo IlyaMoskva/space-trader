@@ -26,7 +26,9 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
   // Auto-clear selection if we just arrived at the selected system
   const effectiveSelected = selected === game.currentSystem ? null : selected;
   const selectedSys = effectiveSelected !== null ? game.galaxy[effectiveSelected] : null;
-  const jumpRange = game.ship.jump + (game.gadgets.some(g => g.id === "fuel_compressor") ? 3 : 0);
+  const jumpRange = game.ship.jump
+    + (game.gadgets.some(g => g.id === "fuel_compressor") ? 3 : 0)
+    + ((game.specialItems || []).includes("fuel_compressor") ? 3 : 0);
   const fuel = selectedSys ? fuelCost(currentSys, selectedSys) : 0;
   const inRange = selectedSys ? canReach(currentSys, selectedSys, jumpRange) : false;
   const canTravel = selectedSys && inRange && game.credits >= fuel;
@@ -74,6 +76,16 @@ function TravelScreen({ game, onUpdate, onEncounter, onQuestPopup, initialSelect
       const interest = Math.ceil(newGame.debt * 0.01);
       newGame.debt = newGame.debt + interest;
       newGame.log = [{ type: "warn", text: "Interest: +" + interest + " cr debt (total: " + newGame.debt + " cr)" }, ...newGame.log];
+    }
+
+    // Passive reputation recovery: time heals wounds (only toward neutral, never above 0)
+    // Every 10 days without criminal activity, rep creeps +1 toward 0
+    // BUT: killers can't buy time — murders don't have a statute of limitations
+    const rep = newGame.reputation || 0;
+    const kills = (newGame.killedCivilian || 0) + (newGame.killedPolice || 0);
+    if (rep < 0 && kills === 0 && newGame.days % 10 === 0) {
+      newGame.reputation = Math.min(0, rep + 1);
+      newGame.log = [{ type: "info", text: "Time passes. Reputation slowly recovering (" + newGame.reputation + ")" }, ...newGame.log];
     }
 
     // Mercenary daily pay

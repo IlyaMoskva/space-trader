@@ -89,49 +89,81 @@ function generateEncounter(currentSystem, player) {
   }
 
   if (r < specialChance) {
-    const specials = ["marie_celeste","famous_captain","sealed_cargo","tonic","alien_machine","mercenary_offer"];
-    return { type: "special", sub: pick(specials) };
+    const baseSpecials = ["marie_celeste","famous_captain","sealed_cargo","tonic","alien_machine","mercenary_offer"];
+    // Bad reputation: pirate underworld offers contracts and record wipes
+    const pirateSpecials = rep <= -4
+      ? ["pirate_contract", "pirate_contract", "record_wipe"]
+      : rep <= -2
+      ? ["record_wipe"]
+      : [];
+    return { type: "special", sub: pick([...baseSpecials, ...pirateSpecials]) };
   }
 
   if (r < specialChance + pirateChance) {
-    const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(currentSystem, player.killed);
+    const { ship, weapon, hull, hullMax, shields, shieldsMax } = generatePirateShip(currentSystem, player);
 
-    // High rep (+7..+10): pirates know you — come angrier, better equipped
-    const angryMod = rep >= 7 ? 1 : 0;
-    const finalWeapon = angryMod && weapon.id !== "military" ? WEAPONS[Math.min(WEAPONS.length-1, WEAPONS.indexOf(weapon)+1)] : weapon;
-    const finalShields = angryMod ? Math.max(shields, 100) : shields;
+    // Pirate anger: worse rep = pirates know you = come angrier + more of them
+    // rep +7..+10: LEGEND — pirates avoid or come very angry
+    // rep -7..-10: PIRATE — you're one of them, weaker ones may flee
+    const angryMod = rep >= 7 ? 1 : rep <= -4 ? -1 : 0; // -1 = pirate rep
 
-    // Low rep (-7..-10): weak pirates may surrender without fighting
+    const finalWeapon = angryMod > 0 && weapon.id !== "military"
+      ? WEAPONS[Math.min(WEAPONS.length-1, WEAPONS.findIndex(w=>w.id===weapon.id)+1)]
+      : weapon;
+    const finalShields = angryMod > 0 ? Math.max(shields, 100) : shields;
+
+    // Coward chance: pirate rep means weak ships flee on sight
     const cowardChance = rep <= -7
       ? Math.max(0, (Math.abs(rep) - 6) * 0.10 - (SHIPS.indexOf(ship) * 0.05))
       : 0;
 
-    const maxWaves = currentSystem.pirates >= 3 ? rnd(1, 3)
+    // Waves: system pirates + rep modifier
+    // rep -4..-6: WANTED — pirates smell blood, +1 wave chance
+    // rep -7..-10: PIRATE — they hunt you in packs
+    const repWaveBonus = rep <= -7 ? 2 : rep <= -4 ? 1 : 0;
+    const sysWaveBase = currentSystem.pirates >= 3 ? rnd(1, 3)
       : currentSystem.pirates >= 2 ? rnd(1, 2)
       : Math.random() < 0.25 ? 2 : 1;
+    const maxWaves = Math.min(4, sysWaveBase + repWaveBonus);
+
+    // Threat escalation: rep -4 and below means each wave is harder
+    const threatBoost = rep <= -4 ? Math.floor(Math.abs(rep) / 2) : 0;
 
     return {
       type: "pirate", ship,
       weapon: finalWeapon,
-      hull, hullMax,
+      hull: hull + threatBoost * 10, hullMax: hullMax + threatBoost * 10,
       shields: finalShields, shieldsMax: finalShields,
       wave: 1, maxWaves,
-      cowardChance,  // pirate may flee on sight
+      cowardChance,
       angry: angryMod > 0,
+      threatBoost,
     };
   }
 
   if (r < specialChance + pirateChance + policeChance) {
-    // Criminal player: police is hostile (wants to arrest)
-    const hostile = rep <= -6;
+    const killedPolice = player.killedPolice || 0;
+    const hostile = rep <= -6 || killedPolice >= 1;
+
     if (hostile) {
-      const tierBonus = Math.floor(Math.abs(rep) / 3);
-      const ship = SHIPS[Math.min(SHIPS.length-1, 3 + tierBonus)];
+      // Police response escalates with kills and rep
+      // 1 kill: Hornet squad; 3+ kills: full military response
+      const repTier  = Math.floor(Math.abs(Math.min(rep, 0)) / 3);
+      const killTier = Math.min(3, Math.floor(killedPolice / 1));
+      const tier = Math.max(repTier, killTier);
+      const ship = SHIPS[Math.min(SHIPS.length-1, 3 + tier)];
+
+      // Waves: 1 kill → 2 cops; 3+ kills → up to 4
+      const policeWaves = killedPolice >= 3 ? rnd(2, 4)
+        : killedPolice >= 1 ? rnd(1, 2)
+        : 1;
+
       return {
         type: "police", sub: "hostile",
-        ship, weapon: WEAPONS[Math.min(2, tierBonus)],
+        ship, weapon: WEAPONS[Math.min(2, tier)],
         hull: ship.hull, hullMax: ship.hull,
-        shields: 100, shieldsMax: 100,
+        shields: 100 + tier * 50, shieldsMax: 100 + tier * 50,
+        wave: 1, maxWaves: policeWaves,
       };
     }
     return { type: "police", contraband: player.cargo.some(c => {
@@ -167,7 +199,9 @@ function generateEncounter(currentSystem, player) {
     }
     // Pick a random merchant ship (small/mid class)
     const merchantShip = SHIPS[rnd(1, 5)];
-    return { type: "trader", sellGoods, buyGoods, merchantShip };
+    return { type: "trader", sellGoods, buyGoods, merchantShip,
+      hull: merchantShip.hull, hullMax: merchantShip.hull, shields: 0, shieldsMax: 0,
+      weapon: WEAPONS[0] }; // merchants have only a weak pulse laser for self-defence
   }
 
   return null;

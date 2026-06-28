@@ -130,6 +130,28 @@ function checkContractArrival(game, arrivedSystemId) {
     return c;
   });
 
+  // Bonus rep for carrying crisis goods — medicine in plague, food in drought/war, water in drought
+  const arrivedSys = newGame.galaxy[arrivedSystemId];
+  const events = arrivedSys?.market?.events || [];
+  const crisisMap = {
+    plague:   ["medicine"],
+    drought:  ["food", "water"],
+    war:      ["food", "medicine", "machines"],
+    coldwinter: ["food", "medicine"],
+  };
+  const crisisBonusGoods = new Set(
+    events.flatMap(e => crisisMap[e.id] || [])
+  );
+  if (crisisBonusGoods.size > 0) {
+    const cargoIds = new Set(newGame.cargo.map(c => c.id));
+    const hasCrisisGoods = [...crisisBonusGoods].some(id => cargoIds.has(id));
+    if (hasCrisisGoods) {
+      newGame.reputation = Math.min(10, (newGame.reputation || 0) + 1);
+      const goodsList = [...crisisBonusGoods].filter(id => cargoIds.has(id)).join(", ");
+      newGame.log = [{ type: "good", text: "Crisis relief appreciated! Brought " + goodsList + " during " + events[0].text + " → Rep +1" }, ...newGame.log];
+    }
+  }
+
   return { newGame, completedContracts, failedContracts };
 }
 
@@ -138,13 +160,22 @@ function onPirateKilled(game) {
   newGame.activeContracts = (newGame.activeContracts || []).map(c => {
     if (c.type === "extermination" && c.status === "active" &&
         c.targetSystemId === game.currentSystem) {
-      // Don't count kills on overdue contracts
-      if (c.deadline < game.days) return c;  // use < not <= so deadline day itself still counts
+      if (c.deadline < game.days) return c;
       const done = c.killsCompleted + 1 >= c.killCount;
       if (done) {
         newGame.credits += c.reward;
         newGame.reputation = (newGame.reputation || 0) + 1;
-        newGame.log = [{ type: "good", text: "Extermination contract complete! +" + c.reward + " cr" }, ...newGame.log];
+        // "He's our killer" — gov contracts can expunge one kill from record
+        const totalKills = (newGame.killedCivilian || 0) + (newGame.killedPolice || 0);
+        if (totalKills > 0) {
+          if ((newGame.killedPolice || 0) > 0)
+            newGame.killedPolice = newGame.killedPolice - 1;
+          else
+            newGame.killedCivilian = newGame.killedCivilian - 1;
+          newGame.log = [{ type: "good", text: "Extermination complete! +" + c.reward + " cr · Gov cleared 1 kill from your record" }, ...newGame.log];
+        } else {
+          newGame.log = [{ type: "good", text: "Extermination contract complete! +" + c.reward + " cr" }, ...newGame.log];
+        }
         return { ...c, killsCompleted: c.killsCompleted + 1, status: "done" };
       }
       newGame.log = [{ type: "info", text: "Kill " + (c.killsCompleted + 1) + "/" + c.killCount + " — " + c.title }, ...newGame.log];
@@ -155,4 +186,41 @@ function onPirateKilled(game) {
   return newGame;
 }
 
-export { generateContracts, checkContractArrival, onPirateKilled };
+function onPirateJobKill(game, sub) {
+  // Called when player kills civilian (sub="civilian") or police (sub="hostile"/"bounty_hunter")
+  let newGame = { ...game };
+  const killType = (sub === "civilian") ? ["diplomat", "freighter"] : ["patrol"];
+
+  newGame.activeContracts = (newGame.activeContracts || []).map(c => {
+    if (c.type !== "pirate_job" || c.status !== "active") return c;
+    if (!killType.includes(c.subType)) return c;
+    if (c.targetSystemId !== game.currentSystem) return c;
+    if (c.deadline < game.days) return c;
+
+    // Contract complete — pay out
+    newGame.credits += c.reward;
+    newGame.reputation = Math.max(-10, (newGame.reputation || 0) + c.repCost);
+
+    // Optional equipment reward
+    if (c.rewardItem === "military_laser") {
+      const laser = { id: "military", name: "Military Laser", damage: 35, price: 35000, minTech: 6 };
+      if (newGame.weapons.length < newGame.ship.slots_w)
+        newGame.weapons = [...newGame.weapons, laser];
+    } else if (c.rewardItem === "energy_shield") {
+      const shield = { id: "energy", name: "Energy Shield", strength: 200, max: 200, current: 200, price: 25000, minTech: 5 };
+      if (newGame.shields.length < newGame.ship.slots_s)
+        newGame.shields = [...newGame.shields, shield];
+    } else if (c.rewardItem === "beam_laser") {
+      const laser = { id: "beam", name: "Beam Laser", damage: 25, price: 12000, minTech: 4 };
+      if (newGame.weapons.length < newGame.ship.slots_w)
+        newGame.weapons = [...newGame.weapons, laser];
+    }
+
+    const itemNote = c.rewardItem ? " + equipment" : "";
+    newGame.log = [{ type: "warn", text: "Pirate contract done: " + c.reward.toLocaleString() + " cr" + itemNote + ". Rep " + c.repCost }, ...newGame.log];
+    return { ...c, status: "done" };
+  });
+  return newGame;
+}
+
+export { generateContracts, checkContractArrival, onPirateKilled, onPirateJobKill };
