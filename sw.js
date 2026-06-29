@@ -1,1 +1,52 @@
-if(!self.define){let e,s={};const n=(n,t)=>(n=new URL(n+".js",t).href,s[n]||new Promise(s=>{if("document"in self){const e=document.createElement("script");e.src=n,e.onload=s,document.head.appendChild(e)}else e=n,importScripts(n),s()}).then(()=>{let e=s[n];if(!e)throw new Error(`Module ${n} didn’t register its module`);return e}));self.define=(t,i)=>{const o=e||("document"in self?document.currentScript.src:"")||location.href;if(s[o])return;let c={};const r=e=>n(e,o),l={module:{uri:o},exports:c,require:r};s[o]=Promise.all(t.map(e=>l[e]||r(e))).then(e=>(i(...e),c))}}define(["./workbox-dcde9eb3"],function(e){"use strict";self.skipWaiting(),e.clientsClaim(),e.precacheAndRoute([{url:"registerSW.js",revision:"368c9e5782325a7fb8b65976a02a564d"},{url:"index.html",revision:"831e77e2f2f3c0be87bfae1a10ab38e5"},{url:"assets/index-CX-lQEd9.js",revision:null},{url:"manifest.webmanifest",revision:"eebcd4a1786c990411c5bf31813cd119"}],{}),e.cleanupOutdatedCaches(),e.registerRoute(new e.NavigationRoute(e.createHandlerBoundToURL("index.html"))),e.registerRoute(/^https:\/\/fonts\.googleapis\.com\/.*/i,new e.CacheFirst({cacheName:"google-fonts-cache",plugins:[new e.ExpirationPlugin({maxEntries:10,maxAgeSeconds:31536e3})]}),"GET"),e.registerRoute(/^https:\/\/fonts\.gstatic\.com\/.*/i,new e.CacheFirst({cacheName:"gstatic-fonts-cache",plugins:[new e.ExpirationPlugin({maxEntries:10,maxAgeSeconds:31536e3})]}),"GET")});
+// ── Space Trader Service Worker ───────────────────────────────────────────
+// VERSION is injected by scripts/inject-sw-version.cjs at build time
+// Manual bump: change CACHE_NAME below AND in scripts/inject-sw-version.cjs
+const CACHE_NAME = "space-trader-v0.23.0";
+
+// Static assets — JS/CSS hashes injected by build script
+const ASSETS = [
+  "/space-trader/",
+  "/space-trader/index.html",
+  "/space-trader/manifest.webmanifest",
+  "/space-trader/icon-192.png",
+  "/space-trader/icon-512.png",
+  "/space-trader/apple-touch-icon.png",
+  "/space-trader/assets/index-BoupZtQq.js",
+];
+
+self.addEventListener("install", event => {
+  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS))
+  );
+});
+
+self.addEventListener("activate", event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+// Network-first: try network, fall back to cache (good for updates)
+self.addEventListener("fetch", event => {
+  // Only handle same-origin + /space-trader/ requests
+  const url = new URL(event.request.url);
+  if (!url.pathname.startsWith("/space-trader/")) return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        // Cache successful GET responses
+        if (event.request.method === "GET" && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
+});

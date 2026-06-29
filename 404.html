@@ -9,10 +9,33 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="SpaceTrader" />
     <link rel="apple-touch-icon" href="/space-trader/apple-touch-icon.png" />
+    <link rel="manifest" href="/space-trader/manifest.webmanifest" />
     <title>Space Trader</title>
-    <script type="module" crossorigin src="/space-trader/assets/index-CX-lQEd9.js"></script>
-  <link rel="manifest" href="/space-trader/manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="/space-trader/registerSW.js"></script></head>
+    <script type="module" crossorigin src="/space-trader/assets/index-BoupZtQq.js"></script>
+  </head>
   <body>
     <div id="root"></div>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/space-trader/sw.js").then(reg => {
+            reg.update();
+            reg.addEventListener("updatefound", () => {
+              const newSW = reg.installing;
+              newSW.addEventListener("statechange", () => {
+                if (newSW.state === "installed" && navigator.serviceWorker.controller) {
+                  // New version ready — show update banner
+                  const banner = document.createElement("div");
+                  banner.style.cssText = "position:fixed;bottom:0;left:0;right:0;background:#1a1a3a;color:#ffd700;text-align:center;padding:12px;font-family:monospace;font-size:15px;z-index:9999;border-top:2px solid #ffd700";
+                  banner.innerHTML = '⬆ New version available — <button onclick="window.location.reload()" style="background:#ffd700;color:#07071a;border:none;padding:4px 12px;cursor:pointer;font-family:monospace;font-size:15px;margin-left:8px">UPDATE NOW</button>';
+                  document.body.appendChild(banner);
+                }
+              });
+            });
+          });
+        });
+      }
+    </script>
+</html>
   </body>
 </html>
