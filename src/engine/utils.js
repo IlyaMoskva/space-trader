@@ -34,9 +34,10 @@ const STRICT_GOVS = [4, 5, 6, 7]; // Communist, Confed, Democracy, Corp. State
 // Returns true if the planet bans services for this player
 // War event overrides ban (desperate times)
 function isServiceBanned(system, reputation, activeEvents) {
+  // Occupied systems have different rules (handled separately)
+  if ((system.alienCount || 0) >= 5) return false; // handled by getOccupiedServices
   if (!STRICT_GOVS.includes(system.gov)) return false;
-  if (reputation >= -2) return false; // SUSPECT or better is fine
-  // War on this planet lifts all restrictions
+  if (reputation >= -2) return false;
   const events = activeEvents || system.market?.events || [];
   const atWar = events.some(e => e.id === "war");
   if (atWar) return false;

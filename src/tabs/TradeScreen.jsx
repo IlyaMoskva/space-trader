@@ -234,6 +234,39 @@ function TradeScreen({ game, onUpdate }) {
         </div>
       ))}
       </div>
+
+      {/* Alien artifacts */}
+      {(game.cargo || []).some(c => c.id === "alien_artifact") && (() => {
+        const artCargo = game.cargo.find(c => c.id === "alien_artifact");
+        const qty = artCargo?.qty || 0;
+        const price = 3000;
+        const isOccupied = (game.galaxy[game.currentSystem]?.alienCount || 0) >= 5;
+        if (isOccupied) return null; // can't trade on occupied planets
+        return (
+          <div className="panel" style={{ marginTop: 8, borderColor: "#ff6600" }}>
+            <div className="panel-title" style={{ color: "#ff6600" }}>👾 Alien Artifacts ({qty} in hold)</div>
+            <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 8 }}>
+              Mysterious technology. Sell for {price.toLocaleString()} cr each, or accumulate to unlock alien gadgets.
+              <span style={{ color: "#ffd700", marginLeft: 8 }}>Total collected: {game.alienArtifacts || 0}</span>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn-gold" onClick={() => {
+                const newCargo = game.cargo.map(c =>
+                  c.id === "alien_artifact" ? { ...c, qty: c.qty - 1 } : c
+                ).filter(c => c.qty > 0);
+                onUpdate({ ...game, credits: game.credits + price, cargo: newCargo,
+                  log: [{ type: "good", text: "Sold alien artifact for " + price.toLocaleString() + " cr" }, ...game.log] });
+              }}>SELL ONE ({price.toLocaleString()} cr)</button>
+              <button className="btn btn-red" onClick={() => {
+                const total = qty * price;
+                const newCargo = game.cargo.filter(c => c.id !== "alien_artifact");
+                onUpdate({ ...game, credits: game.credits + total, cargo: newCargo,
+                  log: [{ type: "good", text: "Sold " + qty + " alien artifacts for " + total.toLocaleString() + " cr" }, ...game.log] });
+              }}>SELL ALL ({(qty * price).toLocaleString()} cr)</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

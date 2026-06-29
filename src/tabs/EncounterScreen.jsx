@@ -5,12 +5,18 @@ import { rnd } from '../engine/utils.js';
 import { effectiveSkills, generatePirateShip } from '../engine/combat.js';
 import { onPirateKilled } from '../engine/contracts.js';
 import { useCombat } from '../hooks/useCombat.js';
+import { doAlienCombatRound, onAlienKilled } from '../engine/aliens.js';
 import ShipSprite from '../components/ShipSprite.jsx';
 import { ELITE_CAPTAINS, MERCENARY_POOL } from '../constants/mercenaries.js';
 import { pick } from '../engine/utils.js';
 
 function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   const { combatLog, enemy, phase, fightRound, flee, surrender } = useCombat({ game, encounter, onUpdate, onDone });
+
+  // ── Alien encounter ────────────────────────────────────────────────────────
+  if (encounter.type === "alien") {
+    return <AlienEncounterScreen game={game} encounter={encounter} onUpdate={onUpdate} onDone={onDone} />;
+  }
 
   if (encounter.type === "pirate") {
     // Coward check: weak pirate may surrender on sight
@@ -547,5 +553,139 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
   return null;
 }
 
+
+// ── Alien Encounter ───────────────────────────────────────────────────────────
+function AlienEncounterScreen({ game, encounter, onUpdate, onDone }) {
+  const [combatLog, setCombatLog] = useState([]);
+  const [alienHull, setAlienHull]   = useState(encounter.hull);
+  const [phase, setPhase]           = useState("choice");
+  const gameRef = useRef(game);
+  gameRef.current = game;
+
+  const hasCloaking = (game.gadgets || []).some(g => g.id === 'cloaking_device');
+  const alienHullMax = encounter.hullMax;
+
+  const fight = () => {
+    if (phase === 'ended') return;
+    setPhase('fighting');
+    const g = gameRef.current;
+    const { playerHull, playerShields, alienHull: newAlienHull,
+            log, ended, result } = doAlienCombatRound(g, { ...encounter, hull: alienHull }, 'fight');
+
+    setCombatLog(l => [...log, ...l].slice(0, 20));
+
+    // Update player shields in game state
+    let updatedShields = g.shields;
+    if (g.shields.length > 0 && playerShields !== g.shields.reduce((s,sh)=>s+sh.current,0)) {
+      let remaining = playerShields;
+      updatedShields = g.shields.map(sh => {
+        const cur = Math.min(sh.max, remaining);
+        remaining = Math.max(0, remaining - sh.max);
+        return { ...sh, current: cur };
+      });
+    }
+
+    setAlienHull(Math.max(0, newAlienHull));
+
+    if (ended) {
+      setPhase('ended');
+      if (result === 'win') {
+        let finalGame = { ...g, hull: playerHull, shields: updatedShields };
+        finalGame = onAlienKilled(finalGame, g.currentSystem, encounter.sub);
+        // Wave?
+        const currentWave = encounter.wave || 1;
+        if (currentWave < (encounter.maxWaves || 1)) {
+          finalGame.log = [{ type: 'bad', text: 'Another alien closing in! Wave ' + (currentWave+1) }, ...finalGame.log];
+          onUpdate(finalGame);
+          setTimeout(() => {
+            const nextEnc = { ...encounter, hull: encounter.hullMax, wave: currentWave + 1 };
+            setAlienHull(nextEnc.hull);
+            setPhase('choice');
+            setCombatLog([{ type: 'bad', text: '⚠ Wave ' + (currentWave+1) + '/' + encounter.maxWaves }]);
+            onDone(nextEnc);
+          }, 1200);
+          return;
+        }
+        onUpdate(finalGame);
+        setTimeout(() => onDone(), 800);
+      } else if (result === 'dead') {
+        onUpdate({ ...g, hull: playerHull, dead: true });
+      }
+    } else {
+      onUpdate({ ...g, hull: playerHull, shields: updatedShields });
+    }
+  };
+
+  const flee = () => {
+    // Cloaking device helps; fleeHard aliens are fast scouts
+    const base = 0.30 + (game.skills?.pilot || 0) * 0.05;
+    const cloak = hasCloaking ? 0.40 : 0;
+    const penalty = encounter.fleeHard ? -0.20 : 0;
+    const chance = Math.min(0.90, base + cloak + penalty);
+    if (Math.random() < chance) {
+      onUpdate({ ...game, log: [{ type: 'info', text: 'Escaped from ' + encounter.ship.name + '!' }, ...game.log] });
+      onDone();
+    } else {
+      setCombatLog(l => [{ type: 'bad', text: 'Failed to flee! ' + encounter.ship.name + ' is too fast!' }, ...l]);
+      fight(); // alien still attacks
+    }
+  };
+
+  const alienPct = Math.round((alienHull / alienHullMax) * 100);
+  const playerPct = Math.round((game.hull / game.hullMax) * 100);
+
+  return (
+    <div className="panel" style={{ borderColor: '#ff4400' }}>
+      <div className="panel-title" style={{ color: '#ff6600' }}>
+        👾 ALIEN ENCOUNTER — {encounter.ship.name.toUpperCase()}
+        {encounter.maxWaves > 1 && <span style={{ color: '#ff4444', marginLeft: 8 }}>Wave {encounter.wave}/{encounter.maxWaves}</span>}
+      </div>
+
+      {/* Status bars */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '8px 0' }}>
+        <div>
+          <div style={{ fontSize: 13, color: '#ff6600', marginBottom: 2 }}>{encounter.ship.name}</div>
+          <div style={{ background: '#1a0a00', height: 10, borderRadius: 3, border: '1px solid #ff4400' }}>
+            <div style={{ width: alienPct + '%', height: '100%', background: '#ff4400', borderRadius: 3, transition: 'width 0.3s' }}/>
+          </div>
+          <div style={{ fontSize: 12, color: '#888' }}>{Math.max(0, alienHull)}/{alienHullMax} hull</div>
+          {encounter.regen > 0 && !((game.gadgets||[]).some(g=>g.id==='regen_inhibitor')) &&
+            <div style={{ fontSize: 11, color: '#ff8800' }}>↺ regenerates {encounter.regen}/round</div>}
+        </div>
+        <div>
+          <div style={{ fontSize: 13, color: '#00ff88', marginBottom: 2 }}>Your ship</div>
+          <div style={{ background: '#001a00', height: 10, borderRadius: 3, border: '1px solid #00ff44' }}>
+            <div style={{ width: playerPct + '%', height: '100%', background: '#00ff44', borderRadius: 3, transition: 'width 0.3s' }}/>
+          </div>
+          <div style={{ fontSize: 12, color: '#888' }}>{game.hull}/{game.hullMax} hull</div>
+        </div>
+      </div>
+
+      {/* Alien capabilities */}
+      <div style={{ fontSize: 13, color: '#ff8800', marginBottom: 8 }}>
+        {encounter.ship.weapons}× pulse [{encounter.pulseDamage[0]}-{encounter.pulseDamage[1]}]
+        {encounter.hasPlasma && <span style={{ color: '#ff4444', marginLeft: 8 }}>⚡ plasma burst ({Math.round(encounter.plasma.chance*100)}% · {encounter.plasma.damage} dmg · bypasses shields)</span>}
+        {encounter.fleeHard && <span style={{ color: '#ffaa00', marginLeft: 8 }}>· FAST — hard to escape</span>}
+      </div>
+
+      {/* Combat log */}
+      {combatLog.length > 0 && (
+        <div style={{ maxHeight: 120, overflowY: 'auto', marginBottom: 8, fontSize: 13 }}>
+          {combatLog.map((e, i) => <div key={i} className={"log-entry " + e.type}>{e.text}</div>)}
+        </div>
+      )}
+
+      {phase !== 'ended' && (
+        <div className="flex-gap">
+          <button className="btn btn-red" onClick={fight}>⚔ FIGHT</button>
+          <button className="btn btn-blue" onClick={flee}>
+            {hasCloaking ? '🫥 CLOAK & FLEE' : '↗ FLEE'}
+            {encounter.fleeHard && !hasCloaking && <span style={{ fontSize: 11 }}> (risky)</span>}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default EncounterScreen;

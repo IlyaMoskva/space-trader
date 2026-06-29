@@ -365,13 +365,28 @@ function ShipScreen({ game, onUpdate }) {
           <div className="panel-title">Gadgets ({game.gadgets.length}/{game.ship.slots_g} slots)</div>
           {GADGETS.map(g => {
             const owned = game.gadgets.some(x => x.id === g.id);
-            const canBuy = !owned && game.credits >= g.price && game.gadgets.length < game.ship.slots_g;
+            const artifacts = game.alienArtifacts || 0;
+            const needsArtifacts = g.id === 'regen_inhibitor' ? 10 : g.id === 'cloaking_device' ? 5 : 0;
+            const artifactsOk = needsArtifacts === 0 || artifacts >= needsArtifacts;
+            const canBuy = !owned && game.credits >= g.price && game.gadgets.length < game.ship.slots_g
+              && sys.tech >= (g.minTech || 0) && artifactsOk;
+            const alienGadget = needsArtifacts > 0;
             return (
               <div key={g.id} className="stat-row">
-                <span className="stat-label">{g.name} <span style={{ color: "#555588" }}>({g.desc})</span></span>
+                <span className="stat-label">
+                  {alienGadget && <span style={{ color: '#ff6600' }}>👾 </span>}
+                  {g.name} <span style={{ color: "#555588" }}>({g.desc})</span>
+                  {alienGadget && !artifactsOk && (
+                    <span style={{ color: '#ff6600', fontSize: 12, marginLeft: 6 }}>
+                      Requires {needsArtifacts} artifacts ({artifacts}/{needsArtifacts})
+                    </span>
+                  )}
+                </span>
                 {owned ? <span className="badge badge-green">OWNED</span>
                   : <button className={"btn " + (canBuy ? "btn-gold" : "btn-disabled")}
-                      style={{ fontSize: 15, padding: "4px 8px" }} onClick={() => buyGadget(g)}>{g.price.toLocaleString()} cr</button>}
+                      style={{ fontSize: 15, padding: "4px 8px" }} onClick={() => canBuy && buyGadget(g)}>
+                      {canBuy ? g.price.toLocaleString() + " cr" : !artifactsOk ? "Need artifacts" : "—"}
+                    </button>}
               </div>
             );
           })}

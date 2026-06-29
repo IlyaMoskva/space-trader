@@ -1,13 +1,13 @@
 {
   "name": "space-trader",
   "private": true,
-  "version": "0.23.0",
+  "version": "0.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "npm test && vite build && node scripts/inject-sw-assets.cjs",
     "preview": "vite preview",
-    "test": "node test.cjs && node test-imports.cjs && node test-travel.cjs",
+    "test": "node test.cjs && node test-imports.cjs && node test-travel.cjs && node test-aliens.cjs",
     "version": "node scripts/bump-sw-version.cjs && git add public/sw.js"
   },
   "dependencies": {

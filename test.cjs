@@ -30,11 +30,12 @@ const constantsSrc = [
 const loadEngine = (file) =>
   fs.readFileSync(path.join(__dirname, "src/engine", file), "utf8")
     .split("\n")
-    .filter(l => !l.trim().startsWith("import ") && !l.trim().startsWith("export "))
+    .filter(l => !l.trim().startsWith("import ") && !l.trim().startsWith("export {"))
+    .map(l => l.replace(/^export (function|const|class) /, '$1 '))
     .join("\n");
 
 const engineSrc = [
-  "utils.js", "galaxy.js", "market.js", "contracts.js", "quests.js", "combat.js", "newGame.js"
+  "utils.js", "galaxy.js", "market.js", "contracts.js", "quests.js", "combat.js", "newGame.js", "aliens.js", "travel.js"
 ].map(loadEngine).join("\n");
 
 const stub = `

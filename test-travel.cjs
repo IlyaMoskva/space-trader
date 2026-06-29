@@ -20,7 +20,7 @@ const constantFiles = ['constants/ships.js','constants/commodities.js','constant
                        'constants/events.js','constants/mercenaries.js'];
 const engineFiles   = ['engine/utils.js','engine/galaxy.js','engine/market.js',
                        'engine/contracts.js','engine/quests.js','engine/combat.js',
-                       'engine/newGame.js','engine/travel.js'];
+                       'engine/newGame.js','engine/aliens.js','engine/travel.js'];
 
 const stub = `
   const Math = globalThis.Math;

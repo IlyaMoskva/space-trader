@@ -4,7 +4,102 @@ All notable changes to Space Trader PWA.
 
 ---
 
-## [0.23.0] — current
+## [0.3.0] — Alien Invasion
+
+### Alien Invasion System
+- **`constants/aliens.js`** — 3 ship types (Scout/Cruiser/Dreadnought), occupation stages, gadget/weapon constants
+- **`engine/aliens.js`** — full invasion engine: `generateAlienEncounter`, `tickAlienInvasion`, `onAlienKilled`, `checkAlienInvasionStart`, `getOccupationStatus`, `getOccupiedServices`, `doAlienCombatRound`
+- **test-aliens.cjs** — 22 alien engine tests
+
+### Alien Ship Types
+| Ship | Hull | Weapons | Plasma | Regen | Flee |
+|---|---|---|---|---|---|
+| Scout | 80 | 1× pulse | — | 3/round | Hard (fast) |
+| Cruiser | 180 | 2× pulse | 60 dmg, 25% | 5/round | Easy |
+| Dreadnought | 350 | 3× pulse | 100 dmg, 20% | 8/round | Easy (slow) |
+
+### Occupation Progression
+- `scouted` — 1–4 aliens, market works, warnings in news
+- Tiny/Small: anarchy immediately at 5 aliens
+- Medium/Large: dictatorship phase → anarchy at 30 days
+- Huge/Gargantuan: dictatorship → anarchy at 60 days
+- **Dictatorship**: no market, repair OK, shields OK (tech ≥ 2)
+- **Anarchy**: no market, repair OK, NO shields
+- War on planet lifts service restrictions
+
+### Invasion Mechanics
+- Starts when `alien_invasion` quest fails or deadline passes
+- Seeds 1–2 systems near quest target
+- **Tick every 3 days**: NPC defense roll (police+tech), spread at 5/5 aliens
+- **Game over** if 30+ systems occupied
+- NPC defense: `police × 15% + tech × 5%` chance to reduce alien count
+- **Spread**: 5 aliens → attack nearest uninfected neighbour within 200 coords
+
+### Combat
+- Alien encounters in invaded systems + 15% chance in neighbouring systems
+- **Hull regeneration** each round (3–8 hp) — blocked by Regen Inhibitor gadget
+- **Plasma burst** bypasses shields entirely
+- **Alien Disruptor** weapon: 25 dmg × 2 vs aliens = 50 effective (available tech 7+)
+- **Regen Inhibitor** gadget: blocks regen (requires 10 artifacts, tech 8+)
+- **Cloaking Device** gadget: +40% flee chance vs aliens (requires 5 artifacts, tech 7+)
+- Killing alien: rep +1, artifact drop (40–80% chance), reduces system alien count
+- **Alien game over screen** if galaxy falls
+
+### Galaxy Map
+- Invaded systems shown in orange/red dots
+- Alien icons beside system name: `👾👾👾` (1 per alien, max 5)
+- 5/5 systems show red dot colour
+
+### Alien Artifacts
+- Drop on alien kill (type-dependent chance)
+- Sell anywhere not occupied: 3,000 cr each
+- Accumulate total for gadget unlock (5 → Cloaking, 10 → Regen Inhibitor)
+- TradeScreen shows artifact section when in hold
+
+### Service Worker
+- Manual `public/sw.js` replaces vite-plugin-pwa (better iOS support)
+- `scripts/bump-sw-version.cjs` — auto-bumps cache on `npm version`
+- `scripts/inject-sw-assets.cjs` — injects hashed JS/CSS paths post-build
+- "Update available" banner when new SW ready
+- `npm run build` = tests + vite build + sw asset injection
+
+### Tests
+- **76 total**: 34 game logic + import checker + 20 travel + 22 alien
+- All test loaders updated with multiline export stripping
+
+---
+
+## [0.23.0] — Reputation, Services, Travel Refactor
+
+### Architecture
+- TravelScreen refactor: logic → `engine/travel.js` (360 → 138 lines)
+- `npm run build` runs tests first
+- 54 checks before this release
+
+### Reputation system (complete)
+- Passive recovery every 10 days (blocked for murderers)
+- Clean police inspections: accumulating probability N×15%
+- Shadow Broker: |rep|×2000 cr → rep +3, scrubs 1 kill
+- Legal fees blocked for murderers
+- Government contracts expunge kills ("our killer")
+- Pirate contracts (rep ≤ −4): 3 job types
+
+### Service restrictions
+- Strict govs (Communist/Confed/Democracy/Corp.State) ban at rep ≤ −3
+- Repair always available at 3× price
+- Banned port: sell = dump (free); crisis goods always sellable
+- Crisis delivery bonus: rep +1
+
+### Economy
+- Duplicate weapons/shields allowed
+- Moon: net worth = credits + cargo + ship − debt ≥ 500k; cash required to buy
+- Illegal goods: always rep −1; bust chance based on police + rep
+
+---
+
+## [0.3.0-pre / 0.22.x] — Earlier changes
+See git history.
+
 
 ### Architecture
 - **TravelScreen refactor** — all business logic moved to `src/engine/travel.js`; TravelScreen is now rendering + handlers only (360 → 138 lines)

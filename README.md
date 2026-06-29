@@ -1,4 +1,4 @@
-# Space Trader PWA v0.23.0
+# Space Trader PWA v0.3.0
 
 A faithful reimagining of the classic Palm OS game **Space Trader** (2002, Pieter Spronck), built as a Progressive Web App — installable on iPhone and Android, playable fully offline.
 
@@ -88,9 +88,21 @@ Attack traders (rep −2), pay fines in Bank, surrender to police (rep +3).
 | Quest | Reward |
 |---|---|
 | 🐉 Dragonfly | Destroy experimental ship → Lightning Shield |
-| 👾 Alien Invasion | Warn planet in time → Fuel Compressor |
+| 👾 Alien Invasion | **Warn planet in time → Fuel Compressor. Fail → invasion begins!** |
 | 🔬 Warn the Doctor | Race 12 days → Portable Singularity |
 | 🤝 Wild | Smuggle with Beam Laser → +1 Pilot |
+
+### Alien Invasion (v0.3.0)
+Fail or ignore the Alien Invasion quest and the galaxy slowly falls:
+- **3 ship types**: Scout (fast, hard to flee), Cruiser (plasma burst), Dreadnought (massive hull)
+- **Hull regeneration** every combat round — bring a **Regen Inhibitor** gadget to stop it
+- **Plasma burst** bypasses shields — no protection from it
+- **Alien Disruptor** weapon deals 2× damage vs aliens
+- **Cloaking Device** gadget gives +40% flee chance
+- Invaded systems lose markets; repair available but shields only under dictatorship gov
+- NPC fleets fight back probabilistically — high-police/tech systems resist better
+- **30+ systems occupied** = game over
+- Kill aliens for **Alien Artifacts** (sell 3,000 cr each or unlock gadgets)
 
 ---
 
@@ -123,8 +135,9 @@ src/
 ```bash
 npm install
 npm run dev
-npm test          # 54 checks: 34 game logic + import checker + 20 travel engine
-npm run build     # runs tests first, then vite build
+npm test          # 76 checks: 34 game logic + imports + 20 travel + 22 alien
+npm run build     # runs tests first, then vite build + SW asset injection
+npm version patch # bumps version + SW cache name automatically
 ```
 
 ## Deploy

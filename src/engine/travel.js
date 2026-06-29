@@ -3,6 +3,7 @@ import { initMarket, refreshMarket } from './market.js';
 import { generateContracts, checkContractArrival } from './contracts.js';
 import { generateQuests, revealQuestHints, checkQuestArrival } from './quests.js';
 import { generateEncounter, generatePirateShip } from './combat.js';
+import { tickAlienInvasion, checkAlienInvasionStart, generateAlienEncounter } from './aliens.js';
 import { SHIPS, WEAPONS } from '../constants/ships.js';
 import { COMMODITIES } from '../constants/commodities.js';
 import { TECH_LEVELS, GOV_TYPES, SIZES } from '../constants/world.js';
@@ -176,7 +177,31 @@ export function applyTravel(game, selected, fuel) {
   const { newGame: questGame, popups } = checkQuestArrival(newGame, selected);
   newGame = questGame;
 
-  // 12. Boss encounters take priority
+  // 12. Alien invasion tick (every 3 days) + check if invasion should start
+  newGame = checkAlienInvasionStart(newGame);
+  if (newGame.alienInvasionActive && newGame.days % 3 === 0) {
+    const { game: alienGame, news: alienNews, gameOver } = tickAlienInvasion(newGame);
+    newGame = alienGame;
+    if (alienNews.length > 0) {
+      newGame.news = [...alienNews, ...(newGame.news || [])].slice(0, 10);
+    }
+    if (gameOver) {
+      newGame.alienGameOver = true;
+    }
+  }
+
+  // 13. Alien encounter in invaded/neighbouring system
+  const destSys = newGame.galaxy[selected];
+  if (destSys.alienCount > 0 || isNearInvadedSystem(newGame.galaxy, selected)) {
+    const alienChance = Math.min(0.7, (destSys.alienCount || 0) * 0.12 +
+      (isNearInvadedSystem(newGame.galaxy, selected) ? 0.15 : 0));
+    if (Math.random() < alienChance) {
+      const alienEnc = generateAlienEncounter(destSys, newGame);
+      return { newGame, enc: alienEnc, bossEnc: null, popups };
+    }
+  }
+
+  // 14. Boss encounters take priority
   // a) Assassination
   const pendingAssassination = newGame.activeContracts?.find(
     c => c.type === 'assassination' && c.status === 'pending_fight'
@@ -211,6 +236,12 @@ export function applyTravel(game, selected, fuel) {
   // 13. Random encounter
   const enc = generateEncounter(newGame.galaxy[selected], newGame);
   return { newGame, enc, bossEnc: null, popups };
+}
+
+function isNearInvadedSystem(galaxy, systemId) {
+  const sys = galaxy[systemId];
+  return galaxy.some(s => s.id !== systemId && (s.alienCount || 0) > 0 &&
+    Math.hypot(s.x - sys.x, s.y - sys.y) < 200);
 }
 
 // ── Patrol logic ─────────────────────────────────────────────────────────────

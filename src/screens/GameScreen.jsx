@@ -61,6 +61,28 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
     );
   }
 
+  if (game.alienGameOver) {
+    return (
+      <div className="title-screen">
+        <div style={{ fontSize: 19, color: "#ff4400", marginBottom: 16 }}>👾 THE GALAXY HAS FALLEN</div>
+        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 8 }}>
+          The alien forces have conquered over 30 systems.<br/>
+          Humanity's last outposts have gone dark.
+        </div>
+        <div style={{ fontSize: 14, color: "#555566", marginBottom: 8 }}>
+          Commander {game.commander} · Day {game.days} · {game.killedAliens || 0} aliens destroyed
+        </div>
+        <div style={{ fontSize: 14, color: "#ff6600", marginBottom: 20 }}>
+          The Warn the Doctor quest could have stopped this...
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-red" onClick={onNewGame}>NEW GAME</button>
+          <button className="btn btn-gray" onClick={onTitle}>TITLE SCREEN</button>
+        </div>
+      </div>
+    );
+  }
+
   if (game.dead) {
     return (
       <div className="title-screen">

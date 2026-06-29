@@ -14,9 +14,11 @@ const SHIPS = [
 ];
 
 const WEAPONS = [
-  { id: "pulse",    name: "Pulse Laser",    damage: 15, price: 2000,  minTech: 0 },
-  { id: "beam",     name: "Beam Laser",     damage: 25, price: 12000, minTech: 2 },
-  { id: "military", name: "Military Laser", damage: 35, price: 35000, minTech: 5 },
+  { id: "pulse",           name: "Pulse Laser",      damage: 15, price: 2000,  minTech: 0 },
+  { id: "beam",            name: "Beam Laser",        damage: 25, price: 12000, minTech: 2 },
+  { id: "military",        name: "Military Laser",    damage: 35, price: 35000, minTech: 5 },
+  { id: "alien_disruptor", name: "Alien Disruptor",   damage: 25, price: 45000, minTech: 7,
+    vsAlienMultiplier: 2, special: true },
 ];
 
 const SHIELDS = [
@@ -30,6 +32,8 @@ const GADGETS = [
   { id: "tgt_comp",  name: "Targeting System",    price: 20000, desc: "+1 fighter" },
   { id: "dmg_ctrl",  name: "Damage Control",      price: 15000, desc: "+1 engineer" },
   { id: "escape_pod",name: "Escape Pod",          price: 10000, desc: "Survive destruction" },
+  { id: "regen_inhibitor", name: "Regen Inhibitor", price: 60000, minTech: 8, desc: "Blocks alien hull regen" },
+  { id: "cloaking_device", name: "Cloaking Device", price: 35000, minTech: 7, desc: "+40% flee vs aliens" },
 ];
 
 export { SHIPS, WEAPONS, SHIELDS, GADGETS };

@@ -81,11 +81,15 @@ function GalaxyMap({ galaxy, current, selected, onSelect, jumpRange }) {
 
             const color = isCurrent ? "#00ff88"
               : isSelected ? "#ffd700"
+              : (sys.alienCount || 0) >= 5 ? "#ff4400"
+              : (sys.alienCount || 0) > 0  ? "#ff8800"
               : sys.visited ? "#4fc3f7"
               : "#6666aa";
             const opacity = isCurrent || isSelected ? 1 : 0.75;
             const size = isCurrent ? 9 : isSelected ? 8 : 6;
-            const showLabel = true;
+            const alienIcons = sys.alienCount
+              ? '👾'.repeat(Math.min(sys.alienCount, 5))
+              : null;
 
             return (
               <div key={sys.id}>
@@ -103,7 +107,7 @@ function GalaxyMap({ galaxy, current, selected, onSelect, jumpRange }) {
                   onClick={() => sys.id !== current && onSelect(sys.id)}
                   title={sys.name + " — " + dpc + " pc" + (inRange ? " ✓" : "")}
                 />
-                {showLabel && (
+                {(alienIcons || true) && (
                   <div style={{
                     position: "absolute",
                     left: vx + "%", top: "calc(" + vy + "% + 5px)",
@@ -112,6 +116,7 @@ function GalaxyMap({ galaxy, current, selected, onSelect, jumpRange }) {
                     lineHeight: 1,
                     color: isCurrent ? "#00ff88"
                       : isSelected ? "#ffd700"
+                      : (sys.alienCount||0) > 0 ? "#ff6600"
                       : sys.visited ? "#4fc3f7"
                       : "#9999cc",
                     whiteSpace: "nowrap",
@@ -121,6 +126,7 @@ function GalaxyMap({ galaxy, current, selected, onSelect, jumpRange }) {
                     fontFamily: "'VT323', monospace",
                   }}>
                     {sys.name}
+                    {alienIcons && <span style={{ fontSize: 9, marginLeft: 3 }}>{alienIcons}</span>}
                   </div>
                 )}
               </div>
