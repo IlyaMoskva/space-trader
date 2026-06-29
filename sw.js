@@ -1,7 +1,7 @@
 // ── Space Trader Service Worker ───────────────────────────────────────────
 // VERSION is injected by scripts/inject-sw-version.cjs at build time
 // Manual bump: change CACHE_NAME below AND in scripts/inject-sw-version.cjs
-const CACHE_NAME = "space-trader-v0.23.0";
+const CACHE_NAME = "space-trader-v0.3.0";
 
 // Static assets — JS/CSS hashes injected by build script
 const ASSETS = [
@@ -11,7 +11,7 @@ const ASSETS = [
   "/space-trader/icon-192.png",
   "/space-trader/icon-512.png",
   "/space-trader/apple-touch-icon.png",
-  "/space-trader/assets/index-BoupZtQq.js",
+  "/space-trader/assets/index-C6AHRKv_.js",
 ];
 
 self.addEventListener("install", event => {
