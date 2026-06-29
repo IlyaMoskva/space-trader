@@ -1,4 +1,4 @@
-# Space Trader PWA
+# Space Trader PWA v0.23.0
 
 A faithful reimagining of the classic Palm OS game **Space Trader** (2002, Pieter Spronck), built as a Progressive Web App — installable on iPhone and Android, playable fully offline.
 
@@ -101,9 +101,17 @@ React 18 · Vite 5 · vite-plugin-pwa · VT323 pixel font · localStorage
 ### Project structure
 ```
 src/
-├── App.jsx              # root — CSS + App() only
+├── App.jsx              # root — CSS + App() only (~238 lines)
 ├── constants/           # ships, commodities, world, events, mercenaries
-├── engine/              # pure functions: galaxy, market, combat, contracts, quests, utils
+├── engine/              # pure functions — no React
+│   ├── utils.js         # rnd, pick, dist, fuelCost, isServiceBanned
+│   ├── galaxy.js        # generateGalaxy (Poisson + bridge repair)
+│   ├── market.js        # pricing, events, stock
+│   ├── combat.js        # effectiveSkills, generatePirateShip, encounter, round
+│   ├── contracts.js     # generate, arrival, kills, pirate jobs
+│   ├── quests.js        # generate, hints, arrival
+│   ├── travel.js        # applyTravel, applyPatrol, buildNews, getTravelState
+│   └── newGame.js       # createNewGame
 ├── hooks/               # useGameState, useCombat
 ├── components/          # ShipSprite, GalaxyMap, StatusBar, MenuModal, QuestPopup, StarsCanvas, SkillBar
 ├── screens/             # TitleScreen, GameScreen
@@ -115,8 +123,8 @@ src/
 ```bash
 npm install
 npm run dev
-npm test          # 33 game logic tests + static import checker
-npm run build
+npm test          # 54 checks: 34 game logic + import checker + 20 travel engine
+npm run build     # runs tests first, then vite build
 ```
 
 ## Deploy

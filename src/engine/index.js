@@ -6,3 +6,4 @@ export { generateContracts, checkContractArrival, onPirateKilled } from './contr
 export { generateQuests, revealQuestHints, checkQuestArrival } from './quests.js';
 export { effectiveSkills, generatePirateShip, generateEncounter, doCombatRound } from './combat.js';
 export { createNewGame } from './newGame.js';
+export { getTravelState, applyTravel, applyPatrol, buildNews } from './travel.js';

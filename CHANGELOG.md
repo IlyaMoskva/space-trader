@@ -4,7 +4,102 @@ All notable changes to Space Trader PWA.
 
 ---
 
-## [Unreleased] — current
+## [0.23.0] — current
+
+### Architecture
+- **TravelScreen refactor** — all business logic moved to `src/engine/travel.js`; TravelScreen is now rendering + handlers only (360 → 138 lines)
+- `engine/travel.js` exports `getTravelState`, `applyTravel`, `applyPatrol`, `buildNews`
+- **test-travel.cjs** — 20 travel engine tests: fuel cost, day increment, market init, shield recharge, debt interest, merc wages, news building, bulletin board, rep recovery, patrol encounters
+- **`npm run build` runs tests first** — `npm test && vite build`; broken test blocks deploy
+- Total test coverage: 34 game logic + import checker + 20 travel = **54 checks**
+- Version bumped to 0.23.0
+
+### Reputation system (complete)
+- **Passive recovery** — +1 every 10 days toward 0; blocked for murderers (killedCivilian/killedPolice > 0)
+- **Clean police inspections** — accumulating probability (N × 15%, max 60%); counter resets on gain; only toward 0
+- **Shadow Broker** — random space encounter, |rep| × 2000 cr → rep +3, also scrubs 1 kill from record
+- **Legal fees** (Bank) — 5000 × |rep+2| cr → rep +1; blocked entirely when player has kills
+- **Surrender to police** — fine × 800 + jail days (+5/kill for murderers); rep → −1 (or −3 with kills); reduces kill count by 1
+- **Government contracts** — extermination completion expunges 1 kill; assassination expunges 2 kills ("our killer")
+- **Pirate contracts** (rep ≤ −4) — three types: patrol elimination, freighter attack, diplomat assassination; accepting costs rep −1; completion adds credits + optional equipment
+
+### Service restrictions
+- **Strict governments** (Communist, Confed, Democracy, Corp. State) ban services at rep ≤ −3
+- War event on planet lifts all restrictions
+- **Repair allowed at 3× price** — "they won't let you die, but won't make it easy"
+- **Trade: sell → DUMP** — banned port refuses purchase; cargo dumped for free to clear space
+- **Crisis goods** (medicine/food/water during plague/drought/war) always sellable even at banned port
+- **Crisis delivery bonus** — arriving with crisis goods during matching event → rep +1
+
+### Pirate contracts (criminal path)
+- Three job types scale with rep severity: patrol elimination (−4), freighter (−6), diplomat/Flea (−8)
+- Accepting costs rep −1 immediately; deadline 6–12 days
+- Rewards: credits + optional equipment (Military Laser, Beam Laser, Energy Shield)
+- Completion tracked via `onPirateJobKill` — fires when killing civilian or police in target system
+
+### Combat & encounters
+- **Kill counters** in StatusBar: ⚔ pirates / 💀 civilians / 🚔 police (shown only if > 0)
+- **ATTACK on traders** — always available; starts real combat (merchant has Pulse Laser, no shields); win → killedCivilian++, rep −2, loot cargo
+- **Police kills** → killedPolice++, rep −3, policeRecord +2; triggers wave escalation
+- **Pirate waves scale with rep**: rep −4..−6: +1 wave; rep −7..−10: +2 waves, each harder
+- **Police waves scale with killedPolice**: 1 kill → 1–2 cops; 3+ kills → 2–4, military tier
+- **SURRENDER removed from pirate combat** — only available vs police
+
+### Economy & trading
+- **Duplicate weapons/shields** allowed (removed uniqueness filter)
+- **Illegal goods** — always rep −1; bust chance = police × 10% + |rep| × 5%; bust = confiscation + fine × 1.5 + rep −2 total
+- **Moon purchase** — net worth = credits + cargo value + ship value − debt ≥ 500,000; shows breakdown; cash ≥ 500k required to buy
+
+### Bank
+- **Separate sliders** for Borrow (0..maxBorrow) and Repay (0..min(debt,credits))
+- **REPAY ALL** button
+- **Legal fees** section replaces PAY FINE — expensive, blocked for murderers
+
+### Mercenaries
+- **Space encounter** → rumor: "Dupont looking for work in Zaonce" → added to News Feed
+- Planet-based availability restored after refactor
+
+### Fuel Compressor
+- Moved from gadget slot → `specialItems` (doesn't occupy equipment slot)
+- Shown in SHIP → STATUS → Special Items as `⛽ Fuel Compressor · Jump range +3 pc`
+- Transfer preserved across ship purchases
+
+### UI/UX
+- **Repair always visible** at tech < 2 — disabled with hint; at banned port — 3× price
+- **Population** shown in destination panel (regression test added)
+- Debug "Combat contracts" block removed
+- App.jsx cleaned of stale comments (238 lines)
+- PWA `skipWaiting + clientsClaim` — immediate service worker update on deploy
+
+---
+
+## [0.3.0] — Skills, Mercenaries, Quests
+
+### Added
+- Mercenary system: 8 named crew, daily wages per jump, effective skill display
+- Elite Captains: trade gear for +1 skill
+- Alien Learning Machine, Portable Singularity, Alien Tonic
+- JOBS tab, crew quarters per ship
+
+---
+
+## [0.2.0] — Economy & Galaxy
+
+### Added
+- Dynamic market pricing: tech profile × gov modifier × stock curve
+- 10 events affecting prices
+- P/L column, off-market barter at 65%
+- 50 systems, Lave at centre, BFS connectivity
+
+---
+
+## [0.1.0] — Initial prototype
+
+### Added
+- React PWA scaffold (Vite + vite-plugin-pwa)
+- Procedural galaxy, trading, combat, police, bank, escape pod
+- Auto-save to localStorage
+
 
 ### Architecture
 - **Modular refactor** — monolithic App.jsx (4100 lines) split into 32 files:
