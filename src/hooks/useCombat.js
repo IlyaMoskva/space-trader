@@ -4,7 +4,6 @@ import { effectiveSkills } from "../engine/combat.js";
 import { onPirateKilled, onPirateJobKill } from "../engine/contracts.js";
 import { SHIPS, WEAPONS } from "../constants/ships.js";
 import { rnd } from "../engine/utils.js";
-import { rnd } from "../engine/utils.js";
 
 export function useCombat({ game, encounter, onUpdate, onDone }) {
   const [combatLog, setCombatLog] = useState([]);

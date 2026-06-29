@@ -102,21 +102,35 @@ function BankScreen({ game, onUpdate }) {
         );
       })()}
       {(() => {
-        const netWorth = game.credits - (game.debt || 0);
+        const cargoValue = game.cargo.reduce((sum, c) => {
+          const com = (game.galaxy[game.currentSystem]?.market?.[c.id]?.basePrice) || 0;
+          return sum + (com || c.buyPrice || 0) * c.qty;
+        }, 0);
+        const shipValue = Math.floor((game.ship?.price || 0) * 0.7);
+        const netWorth = game.credits - (game.debt || 0) + cargoValue + shipValue;
         if (netWorth < 500000) return null;
         return (
           <div style={{ marginTop: 14, border: "1px solid #ffd700", borderRadius: 4, padding: 10 }}>
             <div style={{ fontSize: 16, color: "#ffd700", marginBottom: 8 }}>🌙 MOON FOR SALE — UTOPIA SYSTEM</div>
-            <div style={{ fontSize: 15, color: "#aaa8cc", marginBottom: 8 }}>
-              Retire in luxury! Cost: 500,000 cr
-              {game.debt > 0 && <span style={{ color: "#00ff88", marginLeft: 6 }}>Net worth: {netWorth.toLocaleString()} cr ✓</span>}
+            <div style={{ fontSize: 15, color: "#aaa8cc", marginBottom: 4 }}>Retire in luxury! Cost: 500,000 cr</div>
+            <div style={{ fontSize: 13, color: "#555588", marginBottom: 8 }}>
+              Net worth: {netWorth.toLocaleString()} cr
+              <span style={{ color: "#555566", marginLeft: 8 }}>
+                (credits {game.credits.toLocaleString()} + cargo ~{cargoValue.toLocaleString()} + ship ~{shipValue.toLocaleString()} − debt {(game.debt||0).toLocaleString()})
+              </span>
             </div>
-            <button className="btn btn-gold" onClick={() => {
-              if (game.credits - (game.debt || 0) < 500000) return;
-              onUpdate({ ...game, credits: game.credits - 500000, retired: true });
-            }}>
-              BUY MOON & RETIRE
+            <button className={"btn " + (game.credits >= 500000 ? "btn-gold" : "btn-disabled")}
+              onClick={() => {
+                if (game.credits < 500000) return;
+                onUpdate({ ...game, credits: game.credits - 500000, retired: true });
+              }}>
+              {game.credits >= 500000 ? "BUY MOON & RETIRE" : "NEED 500,000 CR CASH TO BUY"}
             </button>
+            {game.credits < 500000 && (
+              <div style={{ fontSize: 13, color: "#ff6b35", marginTop: 6 }}>
+                Sell cargo/ship to raise {(500000 - game.credits).toLocaleString()} cr cash
+              </div>
+            )}
           </div>
         );
       })()}
