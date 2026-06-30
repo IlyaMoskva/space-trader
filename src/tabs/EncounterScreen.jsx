@@ -5,7 +5,8 @@ import { rnd } from '../engine/utils.js';
 import { effectiveSkills, generatePirateShip } from '../engine/combat.js';
 import { onPirateKilled } from '../engine/contracts.js';
 import { useCombat } from '../hooks/useCombat.js';
-import { doAlienCombatRound, onAlienKilled } from '../engine/aliens.js';
+import { doAlienCombatRound, onAlienKilled, sellArtifactsAtScientist } from '../engine/aliens.js';
+import { applyEscapePod } from '../engine/utils.js';
 import ShipSprite from '../components/ShipSprite.jsx';
 import { ELITE_CAPTAINS, MERCENARY_POOL } from '../constants/mercenaries.js';
 import { pick } from '../engine/utils.js';
@@ -369,6 +370,28 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
         ]
       },
       mercenary_offer: (() => {
+        // 40% chance: alien invasion distress call if invasion active
+        const invaded = game.alienInvasionActive
+          ? (game.galaxy || []).filter(s => (s.alienCount||0) > 0) : [];
+        if (invaded.length > 0 && Math.random() < 0.4) {
+          const sys = pick(invaded);
+          const status = (sys.alienCount||0) >= 5 ? "OCCUPIED" : "under attack";
+          return {
+            title: "🛸 DISTRESS BROADCAST",
+            desc: '"Mayday from ' + sys.name + '! Alien forces are ' + status + '. ' + sys.alienCount + ' ships detected. Anyone in range, please respond!"',
+            options: [
+              { label: "NOTED — PLOT COURSE", action: () => {
+                onUpdate({ ...game,
+                  news: [{ text: "👾 " + sys.name + ": aliens " + status + " (" + sys.alienCount + " ships)", event: true, system: sys.id }, ...(game.news||[])].slice(0,10),
+                  log:  [{ type: "warn", text: "Distress call from " + sys.name + " — aliens " + status }, ...game.log],
+                });
+                onDone();
+              }, cls: "btn-red" },
+              { label: "IGNORE", action: () => onDone(), cls: "btn-gray" },
+            ]
+          };
+        }
+
         const merc = pick(MERCENARY_POOL.filter(m =>
           !(game.mercenaries || []).find(x => x.id === m.id)
         ));
@@ -377,18 +400,17 @@ function EncounterScreen({ game, encounter, onUpdate, onDone }) {
           desc: "A trader hails you briefly. Nothing useful to report.",
           options: [{ label: "ACKNOWLEDGED", action: () => onDone(), cls: "btn-gray" }]
         };
-        // Find a random system where this merc could appear
-        const targetSys = pick(game.galaxy.filter(s => s.id !== game.currentSystem));
+        const targetSys = pick(game.galaxy.filter(s => s.id !== game.currentSystem && !(s.alienCount >= 5)));
         const skillStr = "P:" + merc.skills.pilot + " F:" + merc.skills.fighter +
           " T:" + merc.skills.trader + " E:" + merc.skills.engineer;
         return {
           title: "🛸 PASSING SHIP",
-          desc: "A pilot hails you. \"Heard a spacer named " + merc.name + " is looking for work out of " + targetSys.name + ". Good skills — " + skillStr + ". Might be worth a stop.\"",
+          desc: "A pilot hails you. \"Heard a spacer named " + merc.name + " is looking for work out of " + (targetSys?.name||"somewhere") + ". Good skills — " + skillStr + ".\"",
           options: [
             { label: "THANKS FOR THE TIP", action: () => {
               onUpdate({ ...game,
-                news: [{ text: merc.name + " (crew) available in " + targetSys.name + " · " + skillStr, event: false }, ...(game.news || [])].slice(0, 10),
-                log: [{ type: "info", text: "Tip: " + merc.name + " looking for work in " + targetSys.name }, ...game.log],
+                news: [{ text: merc.name + " (crew) available in " + (targetSys?.name||"?") + " · " + skillStr, event: false }, ...(game.news||[])].slice(0, 10),
+                log: [{ type: "info", text: "Tip: " + merc.name + " looking for work in " + (targetSys?.name||"?") }, ...game.log],
               });
               onDone();
             }, cls: "btn-blue" },
@@ -609,7 +631,13 @@ function AlienEncounterScreen({ game, encounter, onUpdate, onDone }) {
         onUpdate(finalGame);
         setTimeout(() => onDone(), 800);
       } else if (result === 'dead') {
-        onUpdate({ ...g, hull: playerHull, dead: true });
+        const hasEscapePod = (g.gadgets || []).some(gg => gg.id === 'escape_pod');
+        if (hasEscapePod) {
+          onUpdate(applyEscapePod(g));
+          setTimeout(() => onDone(), 800);
+        } else {
+          onUpdate({ ...g, hull: playerHull, dead: true });
+        }
       }
     } else {
       onUpdate({ ...g, hull: playerHull, shields: updatedShields });

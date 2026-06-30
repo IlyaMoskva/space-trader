@@ -6,10 +6,81 @@ All notable changes to Space Trader PWA.
 
 ## [0.3.0] — Alien Invasion
 
+### Bug Fixes
+- **Critical: ATTACK on trader did nothing** — `useCombat`'s `enemy` state used a lazy `useState` initializer that only ran once on mount. When a trader encounter transitioned to `type:"pirate"` via `onDone()`, the encounter prop changed but `enemy` stayed `null` forever — combat silently failed (only FLEE worked). Fixed with a `useEffect` that re-syncs `enemy` whenever the `encounter` prop changes.
+- **Civilian/trader kill loot rebalanced**: killing a trader now drops their entire hold (3–5 tons, guaranteed, drawn from their actual sellGoods/buyGoods) instead of a random 1–3 unit chance — they had a full cargo bay, it should all spill out.
+- **Reputation on civilian kill**: opening fire costs rep −1 immediately (unchanged); the kill itself now adds another −1, for −2 total — previously the kill alone cost −2 with no separate fire penalty, double-counting.
+- **Pirate kills now reward reputation** (+1) directly, not just via extermination contract completion. Matches alien kills (which already gave +1).
+
 ### Alien Invasion System
-- **`constants/aliens.js`** — 3 ship types (Scout/Cruiser/Dreadnought), occupation stages, gadget/weapon constants
-- **`engine/aliens.js`** — full invasion engine: `generateAlienEncounter`, `tickAlienInvasion`, `onAlienKilled`, `checkAlienInvasionStart`, `getOccupationStatus`, `getOccupiedServices`, `doAlienCombatRound`
-- **test-aliens.cjs** — 22 alien engine tests
+- **`constants/aliens.js`** — 3 ship types, occupation stages, gadget/weapon constants
+- **`engine/aliens.js`** — full invasion engine: `generateAlienEncounter`, `tickAlienInvasion`, `onAlienKilled`, `checkAlienInvasionStart`, `getOccupationStatus`, `getOccupiedServices`, `doAlienCombatRound`, `sellArtifactsAtScientist`, `maxAliensForSystem`
+- **test-aliens.cjs** — 28 alien engine tests
+- Total tests: 82 (34 + imports + 20 travel + 28 alien)
+
+### Alien Ships
+| Ship | Hull | Weapons | Plasma | Regen | Flee |
+|---|---|---|---|---|---|
+| Scout | 80 | 1× pulse | — | 3/round | Hard (fast) |
+| Cruiser | 180 | 2× pulse | 60 dmg 25% | 5/round | Easy |
+| Dreadnought | 350 | 3× pulse | 100 dmg 20% | 8/round | Easy (slow) |
+
+Threat = density × age → ship tier scales as occupation ages
+
+### Occupation Progression
+- Max aliens per planet: Tiny=3, Small=5, Medium=8, Large=10, Huge=12, Gargantuan=15
+- `scouted` — 1–4 aliens, market intact, warnings in news
+- Small: anarchy at 5 aliens immediately
+- Medium: dictatorship → anarchy at 30 days
+- Large/Huge: dictatorship → anarchy at 60 days
+- **Dictatorship**: no market, repair+shields OK (tech≥2)
+- **Anarchy**: no market, repair OK, NO shields
+
+### Invasion Mechanics
+- Starts when `alien_invasion` quest fails/deadline passes
+- **Tick every 3 days**: grow (8-25%/tick), NPC defense (police×12%+tech×4%), spread at 5+ aliens
+- NPC high-police systems make 2-3 rolls per tick — can liberate entire system
+- **Spread**: 5 aliens → nearest uninfected neighbour within 200 coords
+- **Game over** at 30+ occupied systems
+- Liberation progress bar in WARP tab
+
+### Alien Combat
+- Hull regeneration 3–8 hp/round — blocked by Regen Inhibitor gadget
+- Plasma burst bypasses shields entirely
+- **Alien Disruptor** weapon: 25 dmg × 2 vs aliens, shown with `👾 ×2 vs aliens` label
+- **Regen Inhibitor** gadget (10 artifacts, tech 8+): blocks regen
+- **Cloaking Device** gadget (5 artifacts, tech 7+): +40% flee vs aliens
+- Hard to escape scouts (fast); easy to escape dreadnoughts (slow)
+- Killing alien: rep +1, artifact drop 40–80%
+
+### Artifact Economy
+- **Regular planets**: 3,000 cr
+- **Hi-tech (≥6) unoccupied**: 5,000 cr (scientist buys) via `sellArtifactsAtScientist`
+- Can't sell on occupied planets
+- Accumulate total for gadget unlocks
+
+### Encounter Integration
+- `generateEncounter` in combat.js checks `alienCount`: 5% per alien, max 40%
+- Patrol in invaded system → guaranteed alien encounter
+- PATROL panel shows liberation progress bar (X/maxAliens)
+- **Civilian ship distress call**: 40% chance during invasion → alien system news + plot course
+- Alien news items are clickable → WARP tab
+
+### Map
+- Invaded systems: orange (scouted) / red (occupied) dots
+- Alien count icons: `👾👾👾` beside system name (max 5 shown)
+
+### Escape Pod (fixed)
+- Loses: ship, all weapons/shields, cargo, crew (disbanded)
+- Keeps: credits, skills, alien artifacts, quest state
+- New ship: Gnat with no equipment
+- Government compensation: +cr to reach 1,000 if nearly broke
+
+### Service Worker
+- Manual `public/sw.js` replaces vite-plugin-pwa (better iOS)
+- `scripts/bump-sw-version.cjs` auto-bumps on `npm version`
+- `scripts/inject-sw-assets.cjs` injects hashed assets post-build
+- Update banner in browser when new SW ready
 
 ### Alien Ship Types
 | Ship | Hull | Weapons | Plasma | Regen | Flee |
@@ -63,9 +134,32 @@ All notable changes to Space Trader PWA.
 - "Update available" banner when new SW ready
 - `npm run build` = tests + vite build + sw asset injection
 
+### Story Act System (engine/story.js)
+Progressive narrative — quests unlock based on player experience:
+
+| Act | Condition | Unlocks |
+|---|---|---|
+| 1 | Start | Trading, pirates |
+| 2 | kills≥5 OR days≥30 | Dragonfly, Wild, atmospheric hints |
+| 3 | fighter≥4 + good weapon + good ship | Alien Invasion (deadline from reveal) |
+| 4 | alienKills≥3 OR invasion active | War contracts, scientist NPC |
+| 5 | alienKills≥10 + artifacts≥5 | Mothership quest |
+
+- `getStoryAct(game)` — pure function, checked on every arrival
+- `questUnlocked(questId, act)` — gates quest reveal
+- Act 2 atmospheric news hints: strange disappearances, radio interference
+- **Warn the Doctor removed** — replaced by scientist NPC encounter (Акт 4)
+
+### Quest Changes
+- **Alien Invasion** — `daysLeft: null` at creation; set to `rnd(12,18)` at **reveal time** so player has fair warning
+- **Alien Invasion victory** — triggers defensive battle (3 scout waves); win → Fuel Compressor + system fortified (police+2) + invasion starts elsewhere
+- **Mothership** (new, Act 5) — 800 hull, 4 weapons, 150 plasma, regen 15/round; destroying it ends invasion globally + rep+5
+- **Wild quest** — now accepts Alien Disruptor as valid weapon
+
 ### Tests
-- **76 total**: 34 game logic + import checker + 20 travel + 22 alien
-- All test loaders updated with multiline export stripping
+- 38 alien/story tests (was 28)
+- 10 new story act tests: act thresholds, quest unlock gates, invasion daysLeft=null at creation
+- Total: **92 checks**
 
 ---
 

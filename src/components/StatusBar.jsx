@@ -67,6 +67,27 @@ function StatusBar({ game, onMenu }) {
           </div>
         );
       })()}
+      {game.alienInvasionActive && (() => {
+        const occupied = (game.galaxy || []).filter(s => (s.alienCount||0) >= 5).length;
+        const scouted  = (game.galaxy || []).filter(s => (s.alienCount||0) > 0 && s.alienCount < 5).length;
+        const curSys   = game.galaxy?.[game.currentSystem];
+        const curAliens = curSys?.alienCount || 0;
+        return (
+          <div style={{ marginTop: 4, padding: "4px 8px", background: "#1a0800",
+            border: "1px solid #ff440066", borderRadius: 3, fontSize: 13 }}>
+            <span style={{ color: "#ff4400" }}>👾 INVASION</span>
+            <span style={{ color: "#ff8800", marginLeft: 8 }}>{occupied} occupied · {scouted} scouted</span>
+            {curAliens > 0 && (
+              <span style={{ color: "#ff4444", marginLeft: 8 }}>
+                ⚠ THIS SYSTEM: {curAliens}/5
+              </span>
+            )}
+            {game.killedAliens > 0 && (
+              <span style={{ color: "#00ff88", marginLeft: 8 }}>⚔ {game.killedAliens} aliens killed</span>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

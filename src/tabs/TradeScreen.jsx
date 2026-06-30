@@ -5,6 +5,7 @@ import { effectiveSkills } from '../engine/combat.js';
 import { GOV_TYPES, TECH_LEVELS, SIZES, GOV_CATEGORY_MOD } from '../constants/world.js';
 import { initMarket, getCommodityCategory, priceFromStock } from '../engine/market.js';
 import { isServiceBanned } from '../engine/utils.js';
+import { getOccupiedServices, sellArtifactsAtScientist } from '../engine/aliens.js';
 
 function TradeScreen({ game, onUpdate }) {
   const sys = game.galaxy[game.currentSystem];
@@ -157,7 +158,8 @@ function TradeScreen({ game, onUpdate }) {
     return { symbol: "─", color: "#555588", event: false };
   };
 
-  const banned = isServiceBanned(sys, game.reputation || 0);
+  const occupied = getOccupiedServices(sys);
+  const banned = isServiceBanned(sys, game.reputation || 0) || !occupied.market;
 
   return (
     <div>
@@ -168,7 +170,9 @@ function TradeScreen({ game, onUpdate }) {
         </div>
         {banned && (
           <div style={{ padding: "8px 0", color: "#ff6b35", fontSize: 14 }}>
-            ⛔ Market closed — {GOV_TYPES[sys.gov]} government refuses to trade with criminals. Improve your reputation.
+            {!occupied.market && (sys.alienCount || 0) >= 5
+              ? "👾 Market destroyed — alien occupation. You can dump cargo to free space."
+              : "⛔ Market closed — " + GOV_TYPES[sys.gov] + " government refuses to trade with criminals."}
           </div>
         )}
         <div className="commodity-row header" style={{ gridTemplateColumns: "1fr 65px 38px 38px 50px 28px 28px" }}>
@@ -239,30 +243,43 @@ function TradeScreen({ game, onUpdate }) {
       {(game.cargo || []).some(c => c.id === "alien_artifact") && (() => {
         const artCargo = game.cargo.find(c => c.id === "alien_artifact");
         const qty = artCargo?.qty || 0;
-        const price = 3000;
         const isOccupied = (game.galaxy[game.currentSystem]?.alienCount || 0) >= 5;
-        if (isOccupied) return null; // can't trade on occupied planets
+        if (isOccupied) return null;
+        const isScientist = sys.tech >= 6;
+        const sellPrice   = isScientist ? 5000 : 3000;
+        const priceLabel  = isScientist ? "5,000 cr (scientist)" : "3,000 cr";
         return (
           <div className="panel" style={{ marginTop: 8, borderColor: "#ff6600" }}>
-            <div className="panel-title" style={{ color: "#ff6600" }}>👾 Alien Artifacts ({qty} in hold)</div>
+            <div className="panel-title" style={{ color: "#ff6600" }}>
+              👾 Alien Artifacts ({qty} in hold · {game.alienArtifacts || 0} total collected)
+            </div>
             <div style={{ fontSize: 14, color: "#8888bb", marginBottom: 8 }}>
-              Mysterious technology. Sell for {price.toLocaleString()} cr each, or accumulate to unlock alien gadgets.
-              <span style={{ color: "#ffd700", marginLeft: 8 }}>Total collected: {game.alienArtifacts || 0}</span>
+              {isScientist
+                ? "⚗️ Research institute here pays premium: " + priceLabel
+                : "Sell for " + priceLabel + " · Hi-tech planets pay 5,000 cr"}
+              <span style={{ color: "#ffd700", marginLeft: 8 }}>
+                Regen Inhibitor needs 10 · Cloaking needs 5
+              </span>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn-gold" onClick={() => {
+                const ng = sellArtifactsAtScientist(game, 1);
+                if (ng) { onUpdate(ng); return; }
+                // Fallback regular sell
                 const newCargo = game.cargo.map(c =>
                   c.id === "alien_artifact" ? { ...c, qty: c.qty - 1 } : c
                 ).filter(c => c.qty > 0);
-                onUpdate({ ...game, credits: game.credits + price, cargo: newCargo,
-                  log: [{ type: "good", text: "Sold alien artifact for " + price.toLocaleString() + " cr" }, ...game.log] });
-              }}>SELL ONE ({price.toLocaleString()} cr)</button>
+                onUpdate({ ...game, credits: game.credits + sellPrice, cargo: newCargo,
+                  log: [{ type: "good", text: "Sold alien artifact for " + sellPrice.toLocaleString() + " cr" }, ...game.log] });
+              }}>SELL ONE ({sellPrice.toLocaleString()} cr)</button>
               <button className="btn btn-red" onClick={() => {
-                const total = qty * price;
+                const ng = sellArtifactsAtScientist(game, qty);
+                if (ng) { onUpdate(ng); return; }
+                const total = qty * sellPrice;
                 const newCargo = game.cargo.filter(c => c.id !== "alien_artifact");
                 onUpdate({ ...game, credits: game.credits + total, cargo: newCargo,
-                  log: [{ type: "good", text: "Sold " + qty + " alien artifacts for " + total.toLocaleString() + " cr" }, ...game.log] });
-              }}>SELL ALL ({(qty * price).toLocaleString()} cr)</button>
+                  log: [{ type: "good", text: "Sold " + qty + " artifacts for " + total.toLocaleString() + " cr" }, ...game.log] });
+              }}>SELL ALL ({(qty * sellPrice).toLocaleString()} cr)</button>
             </div>
           </div>
         );

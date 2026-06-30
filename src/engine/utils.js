@@ -44,4 +44,47 @@ function isServiceBanned(system, reputation, activeEvents) {
   return true;
 }
 
+// Escape pod activation — player survives but loses ship, equipment, cargo and crew
+export function applyEscapePod(game) {
+  const podShip = { id: "gnat", name: "Gnat", hull: 14, hullMax: 14, cargo: 15,
+    slots_w: 1, slots_s: 0, slots_g: 1, slots_c: 0, jump: 14, price: 10000 };
+
+  const newGadgets = (game.gadgets || []).filter(g => g.id !== "escape_pod");
+  const lostEquip  = Math.round(((game.ship?.price || 0) * 0.5) +
+    (game.weapons || []).reduce((s, w) => s + w.price, 0) +
+    (game.shields || []).reduce((s, sh) => s + sh.price, 0) +
+    newGadgets.reduce((s, g) => s + (g.price || 0), 0));
+
+  const crewFired  = (game.mercenaries || []).map(m => m.name);
+  const cargoLost  = (game.cargo || []).filter(c => c.id !== "alien_artifact");
+  // Alien artifacts survive (small, in your suit pocket)
+  const savedCargo = (game.cargo || []).filter(c => c.id === "alien_artifact");
+
+  // Government compensation if nearly broke
+  const compensation = game.credits < 1000 ? Math.max(0, 1000 - game.credits) : 0;
+
+  const log = [
+    { type: "warn", text: "🚀 ESCAPE POD DEPLOYED! Ship and cargo lost in space." },
+    { type: "bad",  text: "Lost ~" + lostEquip.toLocaleString() + " cr in equipment and " + cargoLost.length + " cargo type(s)." },
+    ...(crewFired.length > 0 ? [{ type: "warn", text: "Crew evacuated and disbanded: " + crewFired.join(", ") + "." }] : []),
+    ...(compensation > 0    ? [{ type: "good", text: "Government emergency grant: +" + compensation + " cr (survival stipend)." }] : []),
+    ...game.log,
+  ];
+
+  return {
+    ...game,
+    ship:             podShip,
+    hull:             podShip.hull,
+    hullMax:          podShip.hullMax,
+    weapons:          [],
+    shields:          [],
+    gadgets:          newGadgets,
+    mercenaries:      [],
+    cargo:            savedCargo,
+    credits:          game.credits + compensation,
+    escapedFromCombat: true,
+    log,
+  };
+}
+
 export { rnd, pick, dist, distParsecs, fuelCost, canReach, jumpRangeCoords, PARSEC_SCALE, isServiceBanned };

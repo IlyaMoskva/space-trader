@@ -30,10 +30,11 @@ const GADGETS = [
   { id: "cargo5",    name: "Cargo Bay +5",       price: 8000,  desc: "+5 cargo" },
   { id: "nav_comp",  name: "Nav Computer",        price: 15000, desc: "+1 pilot" },
   { id: "tgt_comp",  name: "Targeting System",    price: 20000, desc: "+1 fighter" },
-  { id: "dmg_ctrl",  name: "Damage Control",      price: 15000, desc: "+1 engineer" },
-  { id: "escape_pod",name: "Escape Pod",          price: 10000, desc: "Survive destruction" },
-  { id: "regen_inhibitor", name: "Regen Inhibitor", price: 60000, minTech: 8, desc: "Blocks alien hull regen" },
-  { id: "cloaking_device", name: "Cloaking Device", price: 35000, minTech: 7, desc: "+40% flee vs aliens" },
+  { id: "dmg_ctrl",      name: "Damage Control",   price: 15000, desc: "+1 engineer" },
+  { id: "escape_pod",    name: "Escape Pod",        price: 10000, desc: "Survive destruction" },
+  { id: "regen_inhibitor",  name: "Regen Inhibitor",  price: 60000, minTech: 8, desc: "Blocks alien hull regen" },
+  { id: "cloaking_device",  name: "Cloaking Device",  price: 35000, minTech: 7, desc: "+40% flee vs aliens" },
+  { id: "repair_droid",     name: "Repair Droid",      price: 30000, minTech: 6, desc: "+3 hull/round in combat" },
 ];
 
 export { SHIPS, WEAPONS, SHIELDS, GADGETS };

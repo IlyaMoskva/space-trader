@@ -23,7 +23,7 @@ const constantFiles = ['constants/ships.js','constants/commodities.js','constant
                        'constants/events.js','constants/mercenaries.js','constants/aliens.js'];
 const engineFiles   = ['engine/utils.js','engine/galaxy.js','engine/market.js',
                        'engine/contracts.js','engine/quests.js','engine/combat.js',
-                       'engine/newGame.js','engine/aliens.js'];
+                       'engine/story.js','engine/newGame.js','engine/aliens.js'];
 
 const stub = `const Math=globalThis.Math;const Array=globalThis.Array;const Object=globalThis.Object;const console=globalThis.console;const JSON=globalThis.JSON;`;
 const ctx = vm.createContext({ Math, Array, Object, console, JSON,
@@ -38,7 +38,8 @@ vm.runInContext(stub + src, ctx);
 
 const { createNewGame, generateAlienEncounter, getOccupationStatus,
         getOccupiedServices, tickAlienInvasion, onAlienKilled,
-        checkAlienInvasionStart, ALIEN_SHIPS } = ctx;
+        checkAlienInvasionStart, maxAliensForSystem, sellArtifactsAtScientist,
+        getStoryAct, questUnlocked, ALIEN_SHIPS } = ctx;
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -134,9 +135,17 @@ test('generateAlienEncounter: scout for low threat', () => {
 });
 
 test('generateAlienEncounter: dreadnought for max threat', () => {
-  const sys = { id: 0, alienCount: 5, size: 5, tech: 8, alienDays: 60 };
+  // density=1 (15/15), age=1 (120d) → threat=10 → dreadnought
+  const sys = { id: 0, alienCount: 15, size: 5, tech: 8, alienDays: 120 };
   const enc = generateAlienEncounter(sys, {});
-  assertEqual(enc.sub, 'alien_dreadnought', 'high count → dreadnought');
+  assertEqual(enc.sub, 'alien_dreadnought', 'max density+age → dreadnought');
+});
+
+test('generateAlienEncounter: cruiser for medium threat', () => {
+  // density=5/8=0.625, age=0 → threat=round(3.75)=4 → cruiser
+  const sys = { id: 0, alienCount: 5, size: 2, tech: 4, alienDays: 0 };
+  const enc = generateAlienEncounter(sys, {});
+  assertEqual(enc.sub, 'alien_cruiser', 'medium density → cruiser');
 });
 
 test('generateAlienEncounter: plasma only on cruiser+', () => {
@@ -224,7 +233,124 @@ test('checkAlienInvasionStart: starts when quest failed', () => {
   assert(ng.alienInvasionActive, 'invasion starts on quest fail');
 });
 
+// maxAliensForSystem
+test('maxAliensForSystem: tiny=3, gargantuan=15', () => {
+  assertEqual(maxAliensForSystem({ size: 0 }), 3, 'tiny');
+  assertEqual(maxAliensForSystem({ size: 5 }), 15, 'gargantuan');
+  assertEqual(maxAliensForSystem({ size: 2 }), 8, 'medium');
+});
+
+// sellArtifactsAtScientist
+test('sellArtifactsAtScientist: 5000 cr at tech>=6', () => {
+  const g = makeGame();
+  g.galaxy[g.currentSystem].tech = 7;
+  g.galaxy[g.currentSystem].alienCount = 0;
+  g.cargo = [{ id: 'alien_artifact', qty: 2, buyPrice: 0 }];
+  const ng = sellArtifactsAtScientist(g, 1);
+  assert(ng !== null, 'should return new game');
+  assertEqual(ng.credits, g.credits + 5000, 'scientist pays 5000');
+});
+
+test('sellArtifactsAtScientist: null at low-tech planet', () => {
+  const g = makeGame();
+  g.galaxy[g.currentSystem].tech = 4;
+  g.cargo = [{ id: 'alien_artifact', qty: 1, buyPrice: 0 }];
+  const ng = sellArtifactsAtScientist(g, 1);
+  assertEqual(ng, null, 'no scientist at low-tech');
+});
+
+test('sellArtifactsAtScientist: null at occupied planet', () => {
+  const g = makeGame();
+  g.galaxy[g.currentSystem].tech = 8;
+  g.galaxy[g.currentSystem].alienCount = 5;
+  g.cargo = [{ id: 'alien_artifact', qty: 1, buyPrice: 0 }];
+  const ng = sellArtifactsAtScientist(g, 1);
+  assertEqual(ng, null, 'no scientist under occupation');
+});
+
+test('tickAlienInvasion: aliens reinforce over time', () => {
+  const g = makeGame();
+  g.alienInvasionActive = true;
+  g.galaxy[0].alienCount = 2;
+  g.galaxy[0].alienDays  = 90;
+  g.galaxy[0].police = 0;
+  g.galaxy[0].tech   = 0;
+  g.galaxy[0].size   = 5;
+  let game = g;
+  let grew = false;
+  for (let i = 0; i < 30; i++) {
+    const { game: ng } = tickAlienInvasion(game);
+    game = { ...ng };
+    if (ng.galaxy[0].alienCount > 2) { grew = true; break; }
+    game.galaxy = game.galaxy.map((s, idx) => idx === 0 ? { ...s, alienCount: 2 } : s);
+  }
+  assert(grew, 'alien count should grow over time');
+});
+
+// ── Story act tests ────────────────────────────────────────────────────────
+test('getStoryAct: act 1 at start', () => {
+  const g = makeGame();
+  assertEqual(getStoryAct(g), 1, 'new game = act 1');
+});
+
+test('getStoryAct: act 2 after 5 pirate kills', () => {
+  const g = makeGame();
+  g.killed = 5;
+  assert(getStoryAct(g) >= 2, 'act 2 after kills');
+});
+
+test('getStoryAct: act 2 after 30 days', () => {
+  const g = makeGame();
+  g.days = 30;
+  assert(getStoryAct(g) >= 2, 'act 2 after days');
+});
+
+test('getStoryAct: act 3 needs fighter+weapon+good ship', () => {
+  const g = makeGame();
+  g.days = 50;
+  g.killed = 10;
+  g.skills.fighter = 4;
+  g.weapons = [{ id: 'beam', name: 'Beam Laser', damage: 25, price: 12000 }];
+  g.ship = { id: 'firefly', name: 'Firefly' };
+  assertEqual(getStoryAct(g), 3, 'act 3 conditions');
+});
+
+test('getStoryAct: act 4 with alien kills', () => {
+  const g = makeGame();
+  g.killedAliens = 3;
+  assert(getStoryAct(g) >= 4, 'act 4 after alien kills');
+});
+
+test('getStoryAct: act 5 needs 10 kills + 5 artifacts', () => {
+  const g = makeGame();
+  g.killedAliens = 10;
+  g.alienArtifacts = 5;
+  assertEqual(getStoryAct(g), 5, 'act 5');
+});
+
+test('questUnlocked: dragonfly unlocks at act 2', () => {
+  assert(questUnlocked('dragonfly', 2), 'dragonfly at act 2');
+  assert(!questUnlocked('dragonfly', 1), 'dragonfly not at act 1');
+});
+
+test('questUnlocked: alien_invasion unlocks at act 3', () => {
+  assert(questUnlocked('alien_invasion', 3), 'invasion at act 3');
+  assert(!questUnlocked('alien_invasion', 2), 'invasion not at act 2');
+});
+
+test('questUnlocked: mothership unlocks at act 5', () => {
+  assert(questUnlocked('mothership', 5), 'mothership at act 5');
+  assert(!questUnlocked('mothership', 4), 'mothership not at act 4');
+});
+
+test('alien_invasion daysLeft set at reveal time not creation', () => {
+  const g = makeGame();
+  const q = g.quests.find(q => q.id === 'alien_invasion');
+  assert(q, 'alien_invasion quest exists');
+  assertEqual(q.daysLeft, null, 'daysLeft null at creation');
+});
 console.log('\n' + '─'.repeat(50));
 console.log(`Results: ${passed} passed, ${failed} failed`);
 if (failed > 0) { console.log('\nFix failures before committing.'); process.exit(1); }
 else { console.log('\n✓ All alien tests passed!'); }
+

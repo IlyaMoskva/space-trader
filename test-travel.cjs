@@ -9,18 +9,21 @@ const vm   = require('vm');
 // ── Load constants + engine into vm context ───────────────────────────────────
 const SRC = path.join(__dirname, 'src');
 
-const loadFile = (filePath) =>
-  fs.readFileSync(filePath, 'utf8')
+const loadFile = (filePath) => {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const noExports = content.replace(/^export \{[\s\S]*?\};/gm, '');
+  return noExports
     .split('\n')
-    .filter(l => !l.trim().startsWith('import ') && !l.trim().startsWith('export {'))
+    .filter(l => !l.trim().startsWith('import '))
     .map(l => l.replace(/^export (function|const|class) /, '$1 '))
     .join('\n');
+};
 
 const constantFiles = ['constants/ships.js','constants/commodities.js','constants/world.js',
-                       'constants/events.js','constants/mercenaries.js'];
+                       'constants/events.js','constants/mercenaries.js','constants/aliens.js'];
 const engineFiles   = ['engine/utils.js','engine/galaxy.js','engine/market.js',
                        'engine/contracts.js','engine/quests.js','engine/combat.js',
-                       'engine/newGame.js','engine/aliens.js','engine/travel.js'];
+                       'engine/story.js','engine/newGame.js','engine/aliens.js','engine/travel.js'];
 
 const stub = `
   const Math = globalThis.Math;

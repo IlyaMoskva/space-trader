@@ -21,6 +21,14 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [questTarget, setQuestTarget] = useState(null);
 
+  // Clear escape pod flag after rendering
+  useEffect(() => {
+    if (game.escapedFromCombat) {
+      onUpdate({ ...game, escapedFromCombat: false });
+      setTab("ship"); // take player to ship screen to see the damage
+    }
+  }, [game.escapedFromCombat]);
+
   const handleEncounter = (newGame, enc) => {
     onUpdate(newGame);
     setEncounter(enc);

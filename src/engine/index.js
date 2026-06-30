@@ -9,3 +9,4 @@ export { createNewGame } from './newGame.js';
 export { getTravelState, applyTravel, applyPatrol, buildNews } from './travel.js';
 export { tickAlienInvasion, checkAlienInvasionStart, generateAlienEncounter,
          onAlienKilled, getOccupationStatus, getOccupiedServices, doAlienCombatRound } from './aliens.js';
+export { getStoryAct, questUnlocked, ACT_NAMES } from './story.js';

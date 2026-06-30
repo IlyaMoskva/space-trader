@@ -35,7 +35,7 @@ const loadEngine = (file) =>
     .join("\n");
 
 const engineSrc = [
-  "utils.js", "galaxy.js", "market.js", "contracts.js", "quests.js", "combat.js", "newGame.js", "aliens.js", "travel.js"
+  "utils.js", "galaxy.js", "market.js", "contracts.js", "story.js", "quests.js", "combat.js", "newGame.js", "aliens.js", "travel.js"
 ].map(loadEngine).join("\n");
 
 const stub = `

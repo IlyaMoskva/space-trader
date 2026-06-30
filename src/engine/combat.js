@@ -1,4 +1,5 @@
 import { SHIPS, WEAPONS, SHIELDS } from '../constants/ships.js';
+import { ALIEN_SHIPS } from '../constants/aliens.js';
 import { rnd, pick } from './utils.js';
 import { COMMODITIES } from '../constants/commodities.js';
 
@@ -54,25 +55,39 @@ function generateEncounter(currentSystem, player) {
   const rep = player.reputation || 0;
   const specialChance = 12;
 
+  // Alien invasion: check current system and neighbours
+  const alienCount = currentSystem.alienCount || 0;
+  const alienChance = alienCount > 0
+    ? Math.min(40, alienCount * 5)   // 5% per alien in system, max 40%
+    : 0;
+
   // Police: more aggressive toward criminals, less toward heroes
-  // At rep -7..-10: police actively hunt (doubled chance)
-  // At rep +7..+10: police give benefit of doubt (halved chance)
   const policeBase = currentSystem.police * 15 * (1 - pilotSkill * 0.04);
   const policeChance = rep <= -7 ? policeBase * 2
     : rep >= 7 ? policeBase * 0.5
     : policeBase;
 
-  // Pirates: heroes attract stronger/more aggressive pirates
-  // Pirates: criminals may be feared by weak pirates
-  const pirateChance = currentSystem.pirates * 20;
-
-  // Merchant: always possible, player can attack them as pirate
+  const pirateChance  = currentSystem.pirates * 20;
   const merchantChance = 15;
-
-  // Bounty hunters: hunt players with rep <= -5
-  const bountyChance = rep <= -5 ? Math.abs(rep) * 3 : 0;
+  const bountyChance  = rep <= -5 ? Math.abs(rep) * 3 : 0;
 
   const r = rnd(0, 100);
+
+  // Aliens first if system is invaded
+  if (alienCount > 0 && r < alienChance) {
+    const threat = alienCount >= 5 ? 3 : alienCount >= 3 ? 2 : 1;
+    const ship = ALIEN_SHIPS[threat - 1];
+    const maxWaves = alienCount >= 8 ? 3 : alienCount >= 5 ? 2 : 1;
+    return {
+      type: "alien", sub: ship.id, ship: { ...ship },
+      hull: ship.hull, hullMax: ship.hullMax,
+      shields: 0, shieldsMax: 0,
+      regen: ship.regen, hasPlasma: ship.hasPlasma,
+      plasma: ship.plasma || null, pulseDamage: ship.pulseDamage,
+      weapons: ship.weapons, fleeHard: ship.fleeHard,
+      wave: 1, maxWaves,
+    };
+  }
 
   // Bounty hunters first (most dangerous for criminals)
   if (rep <= -5 && r < bountyChance) {

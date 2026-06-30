@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { doCombatRound, generatePirateShip } from "../engine/combat.js";
 import { effectiveSkills } from "../engine/combat.js";
 import { onPirateKilled, onPirateJobKill } from "../engine/contracts.js";
 import { SHIPS, WEAPONS } from "../constants/ships.js";
-import { rnd } from "../engine/utils.js";
+import { rnd, pick, applyEscapePod } from "../engine/utils.js";
 
 export function useCombat({ game, encounter, onUpdate, onDone }) {
   const [combatLog, setCombatLog] = useState([]);
@@ -12,6 +12,20 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
 
   const gameRef = useRef(game);
   gameRef.current = game;
+
+  const prevEncounterRef = useRef(encounter);
+  useEffect(() => {
+    if (prevEncounterRef.current === encounter) return; // same reference, skip
+    prevEncounterRef.current = encounter;
+    if (encounter?.type === "pirate") {
+      setEnemy(encounter);
+      setPhase("choice");
+      setCombatLog([]);
+    } else {
+      setEnemy(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [encounter]);
 
   const flee = useCallback(() => {
     const fleeChance = 0.3 + (game.skills.pilot || 0) * 0.06;
@@ -81,18 +95,88 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             finalGame.log = [{ type: "good", text: "DRAGONFLY destroyed! Lightning Shield salvaged — check SHIP → STATUS." }, ...finalGame.log];
           }
           finalGame.quests = finalGame.quests.map(q => q.id === "dragonfly" ? { ...q, status: "done" } : q);
+        } else if (encounter.isDefensiveBattle && encounter.questId === "alien_invasion") {
+          // Alien invasion defensive battle — check if all waves done
+          const currentWave = encounter.wave || 1;
+          const maxWaves    = encounter.maxWaves || 3;
+          if (currentWave >= maxWaves) {
+            // All waves defeated — quest success
+            finalGame.specialItems = [...(finalGame.specialItems || []), "fuel_compressor"];
+            finalGame.quests = finalGame.quests.map(q =>
+              q.id === "alien_invasion" ? { ...q, status: "done" } : q
+            );
+            // Fortify the defended system: police+2
+            finalGame.galaxy = finalGame.galaxy.map(s =>
+              s.id === finalGame.currentSystem
+                ? { ...s, alienCount: 0, alienDays: 0, police: Math.min(3, (s.police||0) + 2) }
+                : s
+            );
+            // Invasion still starts — but in a different random system
+            const altSeed = finalGame.galaxy
+              .filter(s => s.id !== finalGame.currentSystem && !(s.alienCount||0))
+              .sort(() => Math.random() - 0.5)[0];
+            if (altSeed) {
+              finalGame.galaxy = finalGame.galaxy.map(s =>
+                s.id === altSeed.id ? { ...s, alienCount: 1, alienDays: 0 } : s
+              );
+              finalGame.alienInvasionActive = true;
+              finalGame.log = [
+                { type: "good", text: "👾 PLANET DEFENDED! Fuel Compressor reward. Police forces fortified." },
+                { type: "bad",  text: "⚠ Alien scouts spotted near " + altSeed.name + " — the invasion continues elsewhere!" },
+                ...finalGame.log
+              ];
+            } else {
+              finalGame.alienInvasionActive = true;
+              finalGame.log = [{ type: "good", text: "👾 PLANET DEFENDED! Fuel Compressor reward." }, ...finalGame.log];
+            }
+          }
+          // Wave handling continues in the wave section below
+        } else if (encounter.isMothership) {
+          // Mothership destroyed — end the invasion
+          finalGame.quests = finalGame.quests.map(q =>
+            q.id === "mothership" ? { ...q, status: "done" } : q
+          );
+          finalGame.galaxy = finalGame.galaxy.map(s =>
+            ({ ...s, alienCount: 0, alienDays: 0 })
+          );
+          finalGame.alienInvasionActive = false;
+          finalGame.alienGameOver = false;
+          finalGame.reputation = Math.min(10, (finalGame.reputation || 0) + 5);
+          finalGame.log = [
+            { type: "good", text: "💥 ALIEN MOTHERSHIP DESTROYED! The invasion is over!" },
+            { type: "good", text: "Rep +5. All systems reporting alien withdrawal." },
+            ...finalGame.log
+          ];
         } else if (encounter.sub === "civilian") {
-          // Killed a merchant — no bounty, rep -2, killedCivilian++
-          const shipIdx = Math.max(0, SHIPS.findIndex(s => s.id === encounter?.ship?.id));
-          const stolen = encounter.sellGoods?.slice(0, rnd(1, 3)).map(g => ({
-            id: g.id, qty: rnd(1, 3), buyPrice: 0
-          })) || [];
-          finalGame.cargo = [...(finalGame.cargo || []), ...stolen];
+          // Killed a merchant — full cargo hold drops (3-5 tons, guaranteed)
+          // Their hold was full of whatever they were trading
+          const availableGoods = encounter.sellGoods?.length > 0
+            ? encounter.sellGoods
+            : (encounter.buyGoods || []);
+          let lootTons = rnd(3, 5);
+          const stolen = [];
+          if (availableGoods.length > 0) {
+            while (lootTons > 0) {
+              const g = pick(availableGoods);
+              const qty = Math.min(lootTons, rnd(1, 2));
+              stolen.push({ id: g.id, qty, buyPrice: 0 });
+              lootTons -= qty;
+            }
+          }
+          // Merge duplicate ids
+          const merged = [];
+          for (const s of stolen) {
+            const ex = merged.find(m => m.id === s.id);
+            if (ex) ex.qty += s.qty; else merged.push({ ...s });
+          }
+          finalGame.cargo = [...(finalGame.cargo || []), ...merged];
           finalGame.killedCivilian = (finalGame.killedCivilian || 0) + 1;
-          finalGame.reputation = Math.max(-10, (finalGame.reputation || 0) - 2);
+          // Kill penalty is -2 total; the -1 for opening fire was already applied on ATTACK
+          finalGame.reputation = Math.max(-10, (finalGame.reputation || 0) - 1);
           finalGame.policeRecord = (finalGame.policeRecord || 0) + 1;
           finalGame = onPirateJobKill(finalGame, "civilian");
-          finalGame.log = [{ type: "bad", text: "Destroyed " + (encounter?.ship?.name || "merchant") + "! Looted cargo. Rep −2." }, ...finalGame.log];
+          const totalQty = merged.reduce((s,m)=>s+m.qty,0);
+          finalGame.log = [{ type: "bad", text: "Destroyed " + (encounter?.ship?.name || "merchant") + "! Looted " + totalQty + "t of cargo. Rep −2 total." }, ...finalGame.log];
         } else {
           // Regular pirate or hostile police
           const isPolice = encounter.sub === "hostile" || encounter.sub === "bounty_hunter";
@@ -107,8 +191,9 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             finalGame.log = [{ type: "bad", text: "Destroyed " + (encounter?.ship?.name || "police ship") + "! Rep −3. Bounty: " + bounty + " cr" }, ...finalGame.log];
           } else {
             finalGame.killed = (finalGame.killed || 0) + 1;
+            finalGame.reputation = Math.min(10, (finalGame.reputation || 0) + 1);
             finalGame = onPirateKilled(finalGame);
-            finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr" }, ...finalGame.log];
+            finalGame.log = [{ type: "good", text: "Destroyed " + (encounter?.ship?.name || "pirate") + "! Bounty: " + bounty + " cr · Rep +1" }, ...finalGame.log];
           }
 
           // Combat skill gain
@@ -132,14 +217,46 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
             }
           }
 
-          // Wave attack — pirate or police reinforcements
+          // Wave attack — pirate, police, or mothership escort
           const currentWave = encounter.wave || 1;
           const maxWaves = encounter.maxWaves || 1;
           if (currentWave < maxWaves) {
             const sys = finalGame.galaxy[finalGame.currentSystem];
             const isPoliceWave = encounter.sub === "hostile" || encounter.sub === "bounty_hunter";
+            const isMothership = encounter.questId === "mothership";
             let nextEnc;
-            if (isPoliceWave) {
+
+            if (isMothership && currentWave === 2) {
+              // Wave 3: the Mothership itself
+              nextEnc = {
+                type: "alien", sub: "alien_mothership",
+                ship: { id: "alien_mothership", name: "Alien Mothership", emoji: "💥",
+                        hull: 350, hullMax: 350 },
+                hull: 350, hullMax: 350, shields: 0, shieldsMax: 0,
+                regen: 8, hasPlasma: true,
+                plasma: { damage: 70, chance: 0.15 },
+                pulseDamage: [10, 22], weapons: 3, fleeHard: false,
+                hitAccuracy: 0.6,  // large ship — less accurate vs maneuverable ships
+                wave: 3, maxWaves: 3,
+                isMothership: true, questId: "mothership",
+              };
+              finalGame.log = [{ type: "bad", text: "💥 ALIEN MOTHERSHIP emerges! This is the final fight!" }, ...finalGame.log];
+            } else if (isMothership) {
+              // Wave 1→2: second escort cruiser
+              nextEnc = {
+                type: "alien", sub: "alien_cruiser",
+                ship: { id: "alien_cruiser", name: "Alien Cruiser", emoji: "👾👾",
+                        hull: 180, hullMax: 180 },
+                hull: 180, hullMax: 180, shields: 0, shieldsMax: 0,
+                regen: 5, hasPlasma: true,
+                plasma: { damage: 60, chance: 0.25 },
+                pulseDamage: [5, 15], weapons: 2, fleeHard: false,
+                hitAccuracy: 1.0,
+                wave: currentWave + 1, maxWaves: 3,
+                isMothership: false, questId: "mothership", isEscort: true,
+              };
+              finalGame.log = [{ type: "bad", text: "👾 Second escort cruiser attacks! Wave " + (currentWave+1) + "/3" }, ...finalGame.log];
+            } else if (isPoliceWave) {
               const killedPolice = finalGame.killedPolice || 0;
               const tier = Math.min(3, Math.floor(killedPolice / 1));
               const nextShip = SHIPS[Math.min(SHIPS.length-1, 3 + tier)];
@@ -173,7 +290,12 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
         finalGame.credits += bounty;
         finalGame.log = [{ type: "warn", text: "Pirate escaped! Partial bounty: " + bounty + " cr" }, ...finalGame.log];
       } else if (result === "dead") {
-        finalGame.dead = true;
+        const hasEscapePod = finalGame.gadgets?.some(g => g.id === "escape_pod");
+        if (hasEscapePod) {
+          finalGame = applyEscapePod(finalGame);
+        } else {
+          finalGame.dead = true;
+        }
       }
       onUpdate(finalGame);
       if (result !== "dead") setTimeout(() => onDone(), 800);

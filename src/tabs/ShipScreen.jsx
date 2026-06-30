@@ -3,6 +3,7 @@ import { SHIPS, WEAPONS, SHIELDS, GADGETS } from '../constants/ships.js';
 import { effectiveSkills } from '../engine/combat.js';
 import { distParsecs } from '../engine/utils.js';
 import { isServiceBanned } from '../engine/utils.js';
+import { getOccupiedServices } from '../engine/aliens.js';
 import { TECH_LEVELS, GOV_TYPES, SIZES } from '../constants/world.js';
 import ShipSprite from '../components/ShipSprite.jsx';
 import SkillBar from '../components/SkillBar.jsx';
@@ -111,11 +112,16 @@ function ShipScreen({ game, onUpdate }) {
 
   const canRepair = game.hull < game.hullMax && sys.tech >= 2;
   const canRepairShields = game.shields.some(s => s.current < s.max) && sys.tech >= 2;
-  const banned = isServiceBanned(sys, game.reputation || 0);
+  const occupied   = getOccupiedServices(sys);
+  const repBanned  = isServiceBanned(sys, game.reputation || 0);
+  // Occupied: market/equipment banned per occupation rules; repair always available (with multiplier)
+  const banned = repBanned || !occupied.market; // equipment tab blocked if no market
   const bannedMsg = (
     <div style={{ padding: 12, color: "#ff6b35", fontSize: 15 }}>
-      ⛔ Services denied — {GOV_TYPES[sys.gov]} government refuses to serve criminals.
-      <div style={{ fontSize: 13, color: "#555566", marginTop: 6 }}>Improve your reputation or find a less principled port.</div>
+      {!occupied.market && (sys.alienCount || 0) >= 5
+        ? <span>👾 Planet under alien occupation — no commerce available.<br/><span style={{fontSize:13,color:"#555566"}}>Hull/shield repair still possible if tech ≥ 2.</span></span>
+        : <span>⛔ Services denied — {GOV_TYPES[sys.gov]} government refuses to serve criminals.<br/><span style={{fontSize:13,color:"#555566"}}>Improve your reputation or find a less principled port.</span></span>
+      }
     </div>
   );
 
@@ -190,11 +196,15 @@ function ShipScreen({ game, onUpdate }) {
             const hullFull = game.hull >= game.hullMax;
             const shieldsFull = !game.shields.some(s => s.current < s.max);
             const canRepairNow = !noShipyard;
-            const bannedMultiplier = banned ? 3 : 1;
+            // Occupied anarchy: no shields; rep-banned: 3× price; occupation: 3× price
+            const bannedMultiplier = (repBanned || (!occupied.shields && !noShipyard)) ? 3 : 1;
+            const shieldsAllowed = occupied.shields || !(sys.alienCount >= 5);
             const hullCostFinal = hullCost * bannedMultiplier;
             const shieldCostFinal = shieldCost * bannedMultiplier;
             const hint = noShipyard ? "Requires tech level 2+ shipyard"
-              : banned ? GOV_TYPES[sys.gov] + " charges 3× — they won't let you die, but won't make it easy"
+              : !shieldsAllowed ? "⚠ No shield service under alien anarchy"
+              : repBanned ? GOV_TYPES[sys.gov] + " charges 3× — they won't let you die, but won't make it easy"
+              : bannedMultiplier > 1 ? "Occupation surcharge ×3"
               : null;
             return (
               <div style={{ marginTop: 10 }}>
@@ -206,10 +216,13 @@ function ShipScreen({ game, onUpdate }) {
                     {hullFull ? "HULL OK" : "REPAIR HULL" + (canRepairNow ? " (" + hullCostFinal + " cr" + (game.skills.engineer > 0 && !banned ? " · Eng" : "") + (banned ? " ×3" : "") + ")" : "")}
                   </button>
                   <button
-                    className={"btn " + (canRepairNow && !shieldsFull && game.shields.length > 0 ? "btn-blue" : "btn-disabled")}
+                    className={"btn " + (canRepairNow && !shieldsFull && game.shields.length > 0 && shieldsAllowed ? "btn-blue" : "btn-disabled")}
                     style={{ fontSize: 15, flex: 1 }}
-                    onClick={canRepairNow && !shieldsFull && game.shields.length > 0 ? () => repairShields(bannedMultiplier) : undefined}>
-                    {game.shields.length === 0 ? "NO SHIELDS" : shieldsFull ? "SHIELDS OK" : "RECHARGE SHIELDS" + (canRepairNow ? " (" + shieldCostFinal + " cr" + (banned ? " ×3" : "") + ")" : "")}
+                    onClick={canRepairNow && !shieldsFull && game.shields.length > 0 && shieldsAllowed ? () => repairShields(bannedMultiplier) : undefined}>
+                    {game.shields.length === 0 ? "NO SHIELDS"
+                      : !shieldsAllowed ? "SHIELDS UNAVAILABLE"
+                      : shieldsFull ? "SHIELDS OK"
+                      : "RECHARGE SHIELDS" + (canRepairNow ? " (" + shieldCostFinal + " cr" + (bannedMultiplier > 1 ? " ×3" : "") + ")" : "")}
                   </button>
                 </div>
                 {hint && <div style={{ fontSize: 13, color: banned ? "#ffd700" : "#555566", marginTop: 5 }}>⚠ {hint}</div>}
@@ -290,14 +303,20 @@ function ShipScreen({ game, onUpdate }) {
             </div>
           ))}
           <hr className="divider" />
-          {WEAPONS.filter(w => sys.tech >= w.minTech).map(w => {
+          {WEAPONS.filter(w => sys.tech >= (w.minTech || 0)).map(w => {
             const slotFree = game.weapons.length < game.ship.slots_w;
             const canBuy = game.credits >= w.price && slotFree;
+            const isAlien = w.id === 'alien_disruptor';
             return (
               <div key={w.id} className="stat-row">
-                <span className="stat-label">{w.name} <span style={{color:"#555588"}}>dmg {w.damage}</span></span>
+                <span className="stat-label">
+                  {isAlien && <span style={{color:'#ff6600'}}>👾 </span>}
+                  {w.name}
+                  <span style={{color:"#555588"}}> dmg {w.damage}{isAlien ? '×2 vs aliens' : ''}</span>
+                  {isAlien && <span style={{color:'#ff8800', fontSize:12, marginLeft:6}}>alien tech only</span>}
+                </span>
                 <button className={"btn " + (canBuy ? "btn-gold" : "btn-disabled")}
-                  style={{ fontSize: 15, padding: "4px 8px" }} onClick={() => buyWeapon(w)}>
+                  style={{ fontSize: 15, padding: "4px 8px" }} onClick={() => canBuy && buyWeapon(w)}>
                   {w.price.toLocaleString()} cr
                 </button>
               </div>

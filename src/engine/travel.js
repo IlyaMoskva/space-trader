@@ -4,6 +4,7 @@ import { generateContracts, checkContractArrival } from './contracts.js';
 import { generateQuests, revealQuestHints, checkQuestArrival } from './quests.js';
 import { generateEncounter, generatePirateShip } from './combat.js';
 import { tickAlienInvasion, checkAlienInvasionStart, generateAlienEncounter } from './aliens.js';
+import { getStoryAct } from './story.js';
 import { SHIPS, WEAPONS } from '../constants/ships.js';
 import { COMMODITIES } from '../constants/commodities.js';
 import { TECH_LEVELS, GOV_TYPES, SIZES } from '../constants/world.js';
@@ -66,7 +67,17 @@ export function buildNews(newGame, arrivedSysId, jumpRange) {
     .filter(q => q.status === 'available')
     .map(q => ({ text: q.desc, quest: true }));
 
-  return [...staticNews, ...localEventNews, ...nearbyEventNews, ...questNews].slice(0, 10);
+  // Act 2 atmospheric hints (before alien quest unlocks)
+  const act = getStoryAct(newGame);
+  const act2Hints = act === 2 && !newGame.alienInvasionActive ? [
+    { text: "RUMOUR: Unidentified ships reported on the edge of the system.", event: true },
+    { text: "Strange radio interference on all frequencies near outer systems.", event: true },
+    { text: "Several cargo ships reported missing — official response: 'under investigation'.", event: true },
+  ] : [];
+  const actHint = act2Hints.length > 0 && Math.random() < 0.3
+    ? [act2Hints[Math.floor(Math.random() * act2Hints.length)]] : [];
+
+  return [...staticNews, ...localEventNews, ...nearbyEventNews, ...actHint, ...questNews].slice(0, 10);
 }
 
 // ── Core travel logic ────────────────────────────────────────────────────────
@@ -257,6 +268,13 @@ export function applyPatrol(game, patrolContracts) {
     shields: game.shields.map(s => ({ ...s, current: Math.min(s.max, s.current + 10) })),
     log: [{ type: 'info', text: 'Patrolling ' + sys.name + '...' }, ...game.log],
   };
+
+  // Alien encounter: patrol in invaded system
+  if ((sys.alienCount || 0) > 0) {
+    const enc = generateAlienEncounter(sys, game);
+    newGame.log = [{ type: 'bad', text: '👾 Alien patrol spotted in ' + sys.name + '!' }, ...newGame.log];
+    return { newGame, enc, bossEnc: null };
+  }
 
   // Assassination boss fight
   const assassinContract = patrolContracts.find(c => c.type === 'assassination');
