@@ -183,6 +183,74 @@ const SHIP_SVGS = {
   </>,
 };
 
+// ── Alien ships — organic/biomechanical style, distinct from insect-tech ─────
+const ALIEN_SVGS = {
+  alien_scout: (c) => <>
+    <ellipse cx="32" cy="22" rx="10" ry="18" fill={c.body}/>
+    <ellipse cx="32" cy="16" rx="6" ry="8" fill={c.glass} opacity="0.85"/>
+    <ellipse cx="32" cy="34" rx="5" ry="6" fill={c.engine}/>
+    <polygon points="22,24 4,18 4,30 22,30" fill={c.wing}/>
+    <polygon points="42,24 60,18 60,30 42,30" fill={c.wing}/>
+    <circle cx="10" cy="24" r="2" fill={c.glow} opacity="0.9"/>
+    <circle cx="54" cy="24" r="2" fill={c.glow} opacity="0.9"/>
+    <ellipse cx="32" cy="40" rx="3" ry="5" fill={c.glow} opacity="0.8"/>
+  </>,
+
+  alien_cruiser: (c) => <>
+    <ellipse cx="40" cy="28" rx="16" ry="24" fill={c.body}/>
+    <ellipse cx="40" cy="18" rx="9" ry="11" fill={c.glass} opacity="0.85"/>
+    <ellipse cx="40" cy="40" rx="8" ry="9" fill={c.engine}/>
+    <polygon points="24,30 2,22 0,38 24,44" fill={c.wing}/>
+    <polygon points="56,30 78,22 80,38 56,44" fill={c.wing}/>
+    <circle cx="8" cy="30" r="3" fill={c.glow} opacity="0.9"/>
+    <circle cx="72" cy="30" r="3" fill={c.glow} opacity="0.9"/>
+    <ellipse cx="40" cy="50" rx="5" ry="7" fill={c.glow} opacity="0.85"/>
+    <ellipse cx="28" cy="14" rx="2" ry="3" fill={c.gun}/>
+    <ellipse cx="52" cy="14" rx="2" ry="3" fill={c.gun}/>
+  </>,
+
+  alien_dreadnought: (c) => <>
+    <ellipse cx="48" cy="34" rx="22" ry="32" fill={c.body}/>
+    <ellipse cx="48" cy="20" rx="12" ry="14" fill={c.glass} opacity="0.85"/>
+    <ellipse cx="48" cy="50" rx="11" ry="12" fill={c.engine}/>
+    <polygon points="26,36 -4,24 -6,48 26,58" fill={c.wing}/>
+    <polygon points="70,36 100,24 102,48 70,58" fill={c.wing}/>
+    <circle cx="2" cy="36" r="4" fill={c.glow} opacity="0.9"/>
+    <circle cx="94" cy="36" r="4" fill={c.glow} opacity="0.9"/>
+    <ellipse cx="48" cy="62" rx="7" ry="9" fill={c.glow} opacity="0.85"/>
+    <ellipse cx="32" cy="16" rx="3" ry="4" fill={c.gun}/>
+    <ellipse cx="48" cy="10" rx="3" ry="4" fill={c.gun}/>
+    <ellipse cx="64" cy="16" rx="3" ry="4" fill={c.gun}/>
+  </>,
+
+  alien_mothership: (c) => <>
+    <ellipse cx="80" cy="50" rx="48" ry="40" fill={c.body}/>
+    <ellipse cx="80" cy="30" rx="20" ry="16" fill={c.glass} opacity="0.85"/>
+    <ellipse cx="80" cy="78" rx="18" ry="16" fill={c.engine}/>
+    <polygon points="40,52 -16,32 -20,76 40,90" fill={c.wing}/>
+    <polygon points="120,52 176,32 180,76 120,90" fill={c.wing}/>
+    <circle cx="-8" cy="50" r="6" fill={c.glow} opacity="0.9"/>
+    <circle cx="168" cy="50" r="6" fill={c.glow} opacity="0.9"/>
+    <ellipse cx="80" cy="94" rx="10" ry="12" fill={c.glow} opacity="0.85"/>
+    <ellipse cx="55" cy="24" rx="4" ry="6" fill={c.gun}/>
+    <ellipse cx="75" cy="14" rx="4" ry="6" fill={c.gun}/>
+    <ellipse cx="95" cy="14" rx="4" ry="6" fill={c.gun}/>
+    <ellipse cx="105" cy="24" rx="4" ry="6" fill={c.gun}/>
+    <circle cx="80" cy="50" r="6" fill={c.cockpit} opacity="0.6"/>
+  </>,
+};
+
+const ALIEN_COLORS = {
+  alien_scout:       { body:"#2d5a3d", cockpit:"#3d7a4d", glass:"#7fff9f", wing:"#1d4a2d", engine:"#0d2a1d", gun:"#ff3344", glow:"#7fff9f" },
+  alien_cruiser:      { body:"#5a2d4a", cockpit:"#7a3d6a", glass:"#ff7fcf", wing:"#4a1d3a", engine:"#2a0d1a", gun:"#ff3344", glow:"#ff7fcf" },
+  alien_dreadnought:  { body:"#4a3d1a", cockpit:"#6a5d2a", glass:"#ffdf7f", wing:"#3a2d0a", engine:"#1a0d00", gun:"#ff3344", glow:"#ffdf7f" },
+  alien_mothership:   { body:"#3a1a4a", cockpit:"#5a2a6a", glass:"#cf7fff", wing:"#2a0a3a", engine:"#150018", gun:"#ff3344", glow:"#cf7fff" },
+};
+
+const ALIEN_VB = {
+  alien_scout: "0 0 64 46", alien_cruiser: "0 0 80 60",
+  alien_dreadnought: "0 0 100 70", alien_mothership: "0 0 160 100",
+};
 
 const SHIP_COLORS = {
   flea:        { body:"#778899", cockpit:"#8899aa", glass:"#4fc3f7", wing:"#556677", engine:"#445566", gun:"#cc4444", glow:"#4fc3f7" },
@@ -199,6 +267,21 @@ const SHIP_COLORS = {
 
 
 function ShipSprite({ shipId, size = 48, flip = false }) {
+  // Alien ships use a separate visual style (organic vs insect-tech)
+  if (ALIEN_SVGS[shipId]) {
+    const draw   = ALIEN_SVGS[shipId];
+    const colors = ALIEN_COLORS[shipId];
+    const vb     = ALIEN_VB[shipId];
+    const transform = flip ? `scale(-1,1) translate(-${vb.split(" ")[2]},0)` : undefined;
+    return (
+      <svg width={size} height={size} viewBox={vb} style={{ display:"block", imageRendering:"pixelated" }}>
+        <g transform={transform}>
+          {draw(colors)}
+        </g>
+      </svg>
+    );
+  }
+
   const draw = SHIP_SVGS[shipId] || SHIP_SVGS.gnat;
   const colors = SHIP_COLORS[shipId] || SHIP_COLORS.gnat;
   // Each ship is drawn in a ~72×68 or so box; scale to fit `size`

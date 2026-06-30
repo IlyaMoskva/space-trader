@@ -669,6 +669,13 @@ function AlienEncounterScreen({ game, encounter, onUpdate, onDone }) {
         {encounter.maxWaves > 1 && <span style={{ color: '#ff4444', marginLeft: 8 }}>Wave {encounter.wave}/{encounter.maxWaves}</span>}
       </div>
 
+      {/* Ship sprites */}
+      <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', margin: '8px 0' }}>
+        <ShipSprite shipId={game.ship.id} size={56}/>
+        <div style={{ fontSize: 22, color: '#ff4400' }}>⚔</div>
+        <ShipSprite shipId={encounter.sub} size={56} flip={true}/>
+      </div>
+
       {/* Status bars */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, margin: '8px 0' }}>
         <div>

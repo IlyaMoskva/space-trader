@@ -132,7 +132,7 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
           }
           // Wave handling continues in the wave section below
         } else if (encounter.isMothership) {
-          // Mothership destroyed — end the invasion
+          // Mothership destroyed — end the invasion, military honors
           finalGame.quests = finalGame.quests.map(q =>
             q.id === "mothership" ? { ...q, status: "done" } : q
           );
@@ -142,6 +142,7 @@ export function useCombat({ game, encounter, onUpdate, onDone }) {
           finalGame.alienInvasionActive = false;
           finalGame.alienGameOver = false;
           finalGame.reputation = Math.min(10, (finalGame.reputation || 0) + 5);
+          finalGame.militaryVictory = true;
           finalGame.log = [
             { type: "good", text: "💥 ALIEN MOTHERSHIP DESTROYED! The invasion is over!" },
             { type: "good", text: "Rep +5. All systems reporting alien withdrawal." },

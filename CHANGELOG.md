@@ -6,6 +6,12 @@ All notable changes to Space Trader PWA.
 
 ## [0.3.0] — Alien Invasion
 
+### Military Victory Ending
+- Destroying the Alien Mothership now triggers a separate **military victory** ending (`militaryVictory` flag), distinct from the peaceful Moon retirement
+- Screen: "🎖️ HERO OF THE GALAXY!" — honorable discharge, full pension, Hall of Heroes
+- Stats shown: days survived, ships destroyed, aliens destroyed
+- Moon retirement (Utopia) remains the peaceful/economic ending path — unaffected
+
 ### Bug Fixes
 - **Critical: ATTACK on trader did nothing** — `useCombat`'s `enemy` state used a lazy `useState` initializer that only ran once on mount. When a trader encounter transitioned to `type:"pirate"` via `onDone()`, the encounter prop changed but `enemy` stayed `null` forever — combat silently failed (only FLEE worked). Fixed with a `useEffect` that re-syncs `enemy` whenever the `encounter` prop changes.
 - **Civilian/trader kill loot rebalanced**: killing a trader now drops their entire hold (3–5 tons, guaranteed, drawn from their actual sellGoods/buyGoods) instead of a random 1–3 unit chance — they had a full cargo bay, it should all spill out.

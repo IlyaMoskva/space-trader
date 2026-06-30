@@ -53,6 +53,28 @@ function GameScreen({ game, onUpdate, onNewGame, onTitle }) {
     setTab("travel");
   };
 
+  if (game.militaryVictory) {
+    return (
+      <div className="title-screen">
+        <div style={{ fontSize: 19, color: "#ffd700", marginBottom: 16, lineHeight: 2 }}>🎖️ HERO OF THE GALAXY!</div>
+        <div style={{ fontSize: 16, color: "#00ff88", marginBottom: 12 }}>Commander {game.commander}</div>
+        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 4 }}>Days: {game.days}</div>
+        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 4 }}>Ships destroyed: {game.killed || 0}</div>
+        <div style={{ fontSize: 15, color: "#8888bb", marginBottom: 20 }}>Aliens destroyed: {game.killedAliens || 0}</div>
+        <div style={{ fontSize: 16, color: "#4fc3f7", marginBottom: 8, maxWidth: 420 }}>
+          You destroyed the Alien Mothership and ended the invasion. The Federation throws a parade in your honor.
+        </div>
+        <div style={{ fontSize: 15, color: "#ffd700", marginBottom: 20 }}>
+          Granted an honorable military discharge with full pension. Your name is etched into the Hall of Heroes.
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-gold" onClick={onNewGame}>NEW GAME</button>
+          <button className="btn btn-gray" onClick={onTitle}>TITLE SCREEN</button>
+        </div>
+      </div>
+    );
+  }
+
   if (game.retired) {
     return (
       <div className="title-screen">
