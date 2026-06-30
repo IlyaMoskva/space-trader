@@ -11,7 +11,7 @@ const ASSETS = [
   "/space-trader/icon-192.png",
   "/space-trader/icon-512.png",
   "/space-trader/apple-touch-icon.png",
-  "/space-trader/assets/index-BgukDSM4.js",
+  "/space-trader/assets/index-CWIDAdev.js",
 ];
 
 self.addEventListener("install", event => {
